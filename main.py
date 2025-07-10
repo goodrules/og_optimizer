@@ -2,7 +2,7 @@
 """
 Main entry point for Oil & Gas Field Development Optimizer
 """
-from src.oil_gas_optimizer import ui_app
+from components import ui_app
 from nicegui import ui
 
 if __name__ == "__main__":
