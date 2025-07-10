@@ -118,14 +118,17 @@ class DrillingSchedule:
             for i, well in enumerate(self.wells_drilled)
         )
         
-        # Peak production (simplified - assumes all wells producing)
-        peak_production = sum(w.ip_rate for w in self.wells_drilled)
+        # Peak production per well (average)
+        if self.wells_drilled:
+            peak_production_per_well = sum(w.ip_rate for w in self.wells_drilled) / len(self.wells_drilled)
+        else:
+            peak_production_per_well = 0
         
         return {
             'total_npv': total_npv,
             'total_capex': self.total_capex,
             'wells_drilled_count': len(self.wells_drilled),
-            'peak_production_boed': peak_production,
+            'peak_production_boed': peak_production_per_well,
             'capital_efficiency': total_npv / self.total_capex if self.total_capex > 0 else 0
         }
 

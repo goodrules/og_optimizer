@@ -105,6 +105,54 @@ The application will open at http://localhost:8080
 - Multi-user collaboration features
 - Future: Vizier integration for Bayesian optimization
 
+## Future Enhancements
+
+### Monte Carlo Risk Assessment
+
+The current implementation uses a simplified risk score based on portfolio characteristics (oil price, concentration, efficiency, and discount rate). A future enhancement would be to enable full Monte Carlo simulation for more robust risk assessment.
+
+#### What Monte Carlo Would Add:
+
+1. **Statistical Risk Metrics**:
+   - P10/P50/P90 NPV values (pessimistic/median/optimistic cases)
+   - Probability of positive NPV
+   - Value at Risk (VaR) calculations
+   - Sensitivity analysis showing which variables contribute most to uncertainty
+
+2. **Simulation Process**:
+   ```python
+   # Enable in DrillingScenario.from_knobs():
+   return DrillingScenario(
+       selected_wells=selected_wells,
+       constraints=constraints,
+       econ_params=econ_params,
+       drilling_params=drilling_params,
+       run_monte_carlo=True,  # Enable Monte Carlo
+       mc_simulations=1000    # Number of simulations
+   )
+   ```
+
+3. **Risk Calculation**:
+   ```python
+   # Monte Carlo risk score based on downside deviation:
+   if mc_results.mean_npv > 0:
+       risk_score = 1 - (mc_results.p10_npv / mc_results.mean_npv)
+       metrics.risk_score = max(0, min(1, risk_score))
+   ```
+
+4. **Performance Considerations**:
+   - Current approach: ~100ms per optimization trial
+   - With Monte Carlo: ~2-5 seconds per trial
+   - Recommendation: Use simple method during optimization, Monte Carlo for final analysis
+
+5. **UI Integration Options**:
+   - Add toggle for "Enable Monte Carlo Analysis" (slower but more accurate)
+   - Provide "Detailed Risk Analysis" button for on-demand Monte Carlo
+   - Show NPV ranges instead of single values: "$80MM - $150MM (P10-P90)"
+   - Display probability of success: "87% chance of positive NPV"
+
+The Monte Carlo framework is already implemented in `monte_carlo.py` and integrated with the optimizer - it just needs to be enabled and the UI updated to display the additional metrics.
+
 ## Key Achievements
 
 1. **Code Reuse**: Successfully adapted 80% of the architecture from `local/main.py`

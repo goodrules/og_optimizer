@@ -197,6 +197,32 @@ class ScenarioEvaluator:
             wells_drilled=schedule_metrics.get('wells_drilled_count', 0)
         )
         
+        # Calculate simple risk score based on portfolio characteristics
+        if len(scenario.selected_wells) > 0:
+            # Risk factors:
+            # 1. Oil price sensitivity (lower price = higher risk)
+            oil_price_risk = max(0, min(1, (80 - scenario.econ_params.oil_price) / 40))
+            
+            # 2. Concentration risk (fewer wells = higher risk)
+            concentration_risk = max(0, min(1, 1 - (len(scenario.selected_wells) / 50)))
+            
+            # 3. Capital efficiency risk (lower NPV per dollar = higher risk)
+            if metrics.npv_per_dollar > 0:
+                efficiency_risk = max(0, min(1, 1 - (metrics.npv_per_dollar / 3)))
+            else:
+                efficiency_risk = 1.0
+            
+            # 4. Discount rate risk (higher discount rate = higher risk perception)
+            discount_risk = max(0, min(1, (scenario.econ_params.discount_rate - 0.08) / 0.12))
+            
+            # Weighted average risk score
+            metrics.risk_score = (
+                0.3 * oil_price_risk +
+                0.2 * concentration_risk +
+                0.3 * efficiency_risk +
+                0.2 * discount_risk
+            )
+        
         # Run Monte Carlo if requested
         if scenario.run_monte_carlo and schedule.wells_drilled:
             mc_params = MonteCarloParameters(
@@ -242,7 +268,8 @@ def perturb_knobs(base_knobs: OptimizationKnobs, scale: float = 0.5, locked_para
     well_locks = well_locked or {}
     
     # Perturb wells per lease (unless individually locked)
-    for lease in new_knobs.wells_per_lease:
+    # Only perturb existing leases, don't create new ones
+    for lease in list(new_knobs.wells_per_lease.keys()):
         if not well_locks.get(lease, False):
             current = new_knobs.wells_per_lease[lease]
             change = int(random.uniform(-5, 5) * scale)
@@ -290,18 +317,13 @@ def perturb_knobs(base_knobs: OptimizationKnobs, scale: float = 0.5, locked_para
 
 def worst_case_knobs() -> OptimizationKnobs:
     """Generate worst-case scenario knobs."""
-    # Start with minimal wells on each lease
+    # Start with minimal wells on each Texas lease
     wells_per_lease = {
-        "LEASE001": 1,
-        "LEASE002": 1, 
-        "LEASE003": 1,
-        "LEASE004": 1,
-        "LEASE005": 1,
-        "LEASE006": 1,
-        "LEASE007": 1,
-        "LEASE008": 1,
-        "LEASE009": 1,
-        "LEASE010": 1
+        "MIDLAND_A": 1,
+        "MARTIN_B": 1, 
+        "REEVES_C": 1,
+        "LOVING_D": 1,
+        "HOWARD_E": 1
     }
     return OptimizationKnobs(
         wells_per_lease=wells_per_lease,  # Minimal wells

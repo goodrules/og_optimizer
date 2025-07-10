@@ -98,14 +98,14 @@ def update_metrics_card(idx: int, client: Dict) -> None:
       <div><div class="text-gray-500 text-sm">NPV Improvement</div>
            <div class="text-2xl font-bold {color}">${npv_improvement/1e6:.1f}MM</div></div>
            
-      <div><div class="text-gray-500 text-sm">Wells Drilled</div>
-           <div class="text-2xl font-bold">{m['wells_drilled']}</div></div>
+      <div><div class="text-gray-500 text-sm">Wells Selected</div>
+           <div class="text-2xl font-bold">{m['wells_selected']}</div></div>
            
       <!-- Row 2 -->
       <div><div class="text-gray-500 text-sm">NPV/$ Invested</div>
            <div class="text-2xl font-bold">{m.get('npv_per_dollar', 0):.2f}</div></div>
            
-      <div><div class="text-gray-500 text-sm">Peak Production</div>
+      <div><div class="text-gray-500 text-sm">Avg Production/Well</div>
            <div class="text-2xl font-bold">{m.get('peak_production', 0):.0f} boe/d</div></div>
            
       <div><div class="text-gray-500 text-sm">Trial #</div>
@@ -315,13 +315,13 @@ def update_optimization_history(client: Dict) -> None:
     
     # Extract metrics for all trials
     npvs = []
-    capexs = []
+    risk_scores = []
     efficiencies = []
     
     for trial in client["trials"]:
         m = trial["metrics"]
         npvs.append(m["total_npv"] / 1e6)  # MM
-        capexs.append(m["total_capex"] / 1e6)  # MM
+        risk_scores.append(m.get("risk_score", 0.5) * 100)  # Convert to percentage
         efficiencies.append(m.get("npv_per_dollar", 0))
     
     fig = go.Figure()
@@ -329,7 +329,7 @@ def update_optimization_history(client: Dict) -> None:
     # Create 3D scatter
     fig.add_trace(go.Scatter3d(
         x=npvs,
-        y=capexs,
+        y=risk_scores,
         z=efficiencies,
         mode='markers+lines',
         marker=dict(
@@ -343,7 +343,7 @@ def update_optimization_history(client: Dict) -> None:
         text=[f"Trial {i+1}" for i in range(len(npvs))],
         hovertemplate=(
             "NPV: $%{x:.1f}MM<br>"
-            "CAPEX: $%{y:.1f}MM<br>"
+            "Risk Score: %{y:.1f}%<br>"
             "Efficiency: %{z:.2f}<br>"
             "%{text}<extra></extra>"
         )
@@ -353,7 +353,7 @@ def update_optimization_history(client: Dict) -> None:
     best_idx = np.argmax(npvs)
     fig.add_trace(go.Scatter3d(
         x=[npvs[best_idx]],
-        y=[capexs[best_idx]],
+        y=[risk_scores[best_idx]],
         z=[efficiencies[best_idx]],
         mode='markers',
         marker=dict(size=12, color='red', symbol='diamond'),
@@ -364,7 +364,7 @@ def update_optimization_history(client: Dict) -> None:
         height=400,
         scene=dict(
             xaxis_title="NPV ($MM)",
-            yaxis_title="CAPEX ($MM)",
+            yaxis_title="Risk Score (%)",
             zaxis_title="NPV/$ Efficiency",
             camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
         ),
@@ -557,6 +557,15 @@ def main() -> None:
                     ).props("thumb-label").classes("w-full")
                     contingency.on('update:model-value', lambda e: contingency_label.set_text(f'{e.args}%'))
                     
+                    with ui.row().classes('w-full items-center gap-2 mt-2'):
+                        ui.label("CAPEX Budget ($MM)").classes("text-sm flex-1")
+                        budget_label = ui.label("$100MM").classes("text-sm font-semibold text-gray-700")
+                        # No lock icon for budget - it's always manually set
+                    budget = ui.slider(
+                        min=50, max=200, step=10, value=100
+                    ).props("thumb-label").classes("w-full")
+                    budget.on('update:model-value', lambda e: budget_label.set_text(f'${e.args}MM'))
+                    
                     ui.separator().classes('my-3')
                     
                     # Drilling execution
@@ -691,6 +700,15 @@ def main() -> None:
                         if is_locked and lease_id in wells_per_lease:
                             knobs.wells_per_lease[lease_id] = wells_per_lease[lease_id]
                     
+                    # Clean up knobs to only include valid Texas leases
+                    # Remove any old lease IDs that might have been created by worst_case_knobs
+                    valid_leases = set(TEXAS_LEASES.keys())
+                    knobs.wells_per_lease = {
+                        lease: count 
+                        for lease, count in knobs.wells_per_lease.items() 
+                        if lease in valid_leases
+                    }
+                    
                     # Ensure all active leases have well counts
                     for lease_id in TEXAS_LEASES:
                         if lease_toggles[lease_id].value and lease_id not in knobs.wells_per_lease:
@@ -721,7 +739,7 @@ def main() -> None:
                     metrics = evaluate_scenario(
                         knobs,
                         client["wells"],
-                        DEFAULT_BUDGET
+                        budget.value * 1_000_000  # Convert MM to dollars
                     )
                     
                     # Convert to dict format
@@ -730,7 +748,7 @@ def main() -> None:
                         "total_capex": metrics.total_capex,
                         "npv_per_dollar": metrics.npv_per_dollar,
                         "peak_production": metrics.peak_production,
-                        "wells_drilled": metrics.wells_drilled,
+                        "wells_selected": sum(knobs.wells_per_lease.values()),  # Total wells from UI
                         "risk_score": metrics.risk_score
                     }
                     
@@ -738,8 +756,9 @@ def main() -> None:
                     print(f"Trial {t_idx} - After evaluation:")
                     print(f"  NPV: ${metrics.total_npv/1e6:.1f}MM")
                     print(f"  CAPEX: ${metrics.total_capex/1e6:.1f}MM")
-                    print(f"  Wells drilled: {metrics.wells_drilled}")
-                    print(f"  Peak production: {metrics.peak_production:.0f} boe/d")
+                    print(f"  Wells selected: {sum(knobs.wells_per_lease.values())}")
+                    print(f"  Wells actually scheduled: {metrics.wells_drilled}")
+                    print(f"  Avg production per well: {metrics.peak_production:.0f} boe/d")
                     
                     # Update best solution
                     score = metrics.total_npv
@@ -788,7 +807,7 @@ def main() -> None:
                         ).style('width:700px;height:230px')
                         with client["stats_card"]:
                             client["stats_html"] = ui.html(
-                                '<div class="text-gray-500">Run optimization to see results</div>'
+                                '<div class="text-gray-500">Click "Optimize Development" to see results</div>'
                             )
                     
                     with ui.column():
