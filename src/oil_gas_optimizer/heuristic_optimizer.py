@@ -110,13 +110,20 @@ class DrillingScenario:
         base_capex_budget: float = 100_000_000
     ) -> 'DrillingScenario':
         """Create a drilling scenario from optimization knobs."""
+        print(f"\n--- DrillingScenario.from_knobs ---")
+        print(f"Wells per lease in knobs: {knobs.wells_per_lease}")
+        
         # Select wells based on knobs
         selected_wells = []
         for lease, count in knobs.wells_per_lease.items():
-            lease_wells = [w for w in available_wells if lease in w.name]
+            # Wells are named like "MIDLAND_A_01", so we match by checking if well name starts with lease
+            lease_wells = [w for w in available_wells if w.name.startswith(lease)]
+            print(f"Lease {lease}: found {len(lease_wells)} wells, selecting {count}")
             # Sort by NPV potential (simplified - by IP rate)
             lease_wells.sort(key=_get_well_ip_rate, reverse=True)
             selected_wells.extend(lease_wells[:count])
+        
+        print(f"Total selected wells: {len(selected_wells)}")
         
         # Create constraints
         budget_after_contingency = base_capex_budget * (1 - knobs.contingency_percent)
@@ -164,6 +171,9 @@ class ScenarioEvaluator:
     
     def evaluate(self, scenario: DrillingScenario) -> OptimizationMetrics:
         """Evaluate a drilling scenario and return metrics."""
+        print(f"\n--- ScenarioEvaluator.evaluate ---")
+        print(f"Wells to optimize: {len(scenario.selected_wells)}")
+        
         # Run optimization
         optimizer = DrillingScheduleOptimizer(
             wells=scenario.selected_wells,
@@ -173,9 +183,12 @@ class ScenarioEvaluator:
         )
         
         schedule = optimizer.solve()
+        print(f"Schedule feasible: {schedule.is_feasible()}")
+        print(f"Wells drilled in schedule: {len(schedule.wells_drilled)}")
         
         # Calculate base metrics
         schedule_metrics = schedule.calculate_metrics(scenario.econ_params)
+        print(f"Schedule metrics: NPV=${schedule_metrics['total_npv']/1e6:.1f}MM, CAPEX=${schedule_metrics['total_capex']/1e6:.1f}MM")
         
         metrics = OptimizationMetrics(
             total_npv=schedule_metrics['total_npv'],
@@ -210,7 +223,7 @@ class ScenarioEvaluator:
         return metrics
 
 
-def perturb_knobs(base_knobs: OptimizationKnobs, scale: float = 0.5, locked_params: Optional[Dict[str, bool]] = None) -> OptimizationKnobs:
+def perturb_knobs(base_knobs: OptimizationKnobs, scale: float = 0.5, locked_params: Optional[Dict[str, bool]] = None, well_locked: Optional[Dict[str, bool]] = None) -> OptimizationKnobs:
     """
     Perturb optimization knobs for exploration.
     Adapted from local/main.py perturb_knobs approach.
@@ -219,16 +232,18 @@ def perturb_knobs(base_knobs: OptimizationKnobs, scale: float = 0.5, locked_para
         base_knobs: Current best knobs
         scale: Scale factor for perturbation (0-1)
         locked_params: Dict of parameter names to lock states (True = locked)
+        well_locked: Dict of lease_id to lock states for individual wells
         
     Returns:
         New perturbed knobs
     """
     new_knobs = deepcopy(base_knobs)
     locked = locked_params or {}
+    well_locks = well_locked or {}
     
-    # Perturb wells per lease
-    if not locked.get('wells_per_lease', False):
-        for lease in new_knobs.wells_per_lease:
+    # Perturb wells per lease (unless individually locked)
+    for lease in new_knobs.wells_per_lease:
+        if not well_locks.get(lease, False):
             current = new_knobs.wells_per_lease[lease]
             change = int(random.uniform(-5, 5) * scale)
             new_knobs.wells_per_lease[lease] = max(0, min(32, current + change))
@@ -307,7 +322,14 @@ def evaluate_scenario(
     capex_budget: float
 ) -> OptimizationMetrics:
     """Evaluate a set of knobs by creating and evaluating a scenario."""
+    print(f"\n--- evaluate_scenario ---")
+    print(f"Available wells: {len(available_wells)}")
+    print(f"CAPEX budget: ${capex_budget/1e6:.1f}MM")
+    
     scenario = DrillingScenario.from_knobs(knobs, available_wells, capex_budget)
+    print(f"Selected wells for scenario: {len(scenario.selected_wells)}")
+    print(f"Budget after contingency: ${scenario.constraints.total_capex_budget/1e6:.1f}MM")
+    
     evaluator = ScenarioEvaluator()
     return evaluator.evaluate(scenario)
 

@@ -117,49 +117,74 @@ def update_metrics_card(idx: int, client: Dict) -> None:
 
 
 def update_drilling_timeline(idx: int, client: Dict) -> None:
-    """Update drilling timeline visualization (replaces Gantt chart)."""
+    """Update wells per lease visualization."""
     m = client["trials"][idx]["metrics"]
     k = client["trials"][idx]["knobs"]
     
     fig = go.Figure()
     
-    # Create timeline bars for each lease
+    # Create bar chart showing wells drilled per lease
     colors = {
-        "MIDLAND_A": "#3b82f6",  # blue
-        "MARTIN_B": "#ef4444",   # red
-        "REEVES_C": "#10b981",   # green
-        "LOVING_D": "#f59e0b",   # amber
-        "HOWARD_E": "#8b5cf6"    # purple
+        "LEASE001": "#3b82f6",  # blue - Midland
+        "LEASE002": "#ef4444",  # red - Martin
+        "LEASE003": "#10b981",  # green - Reeves
+        "LEASE004": "#f59e0b",  # amber - Loving
+        "LEASE005": "#8b5cf6",  # purple - Howard
+        "LEASE006": "#ec4899",  # pink - Dawson
+        "LEASE007": "#14b8a6",  # teal - Glasscock
+        "LEASE008": "#6366f1",  # indigo - Upton
+        "LEASE009": "#84cc16",  # lime - Reagan
+        "LEASE010": "#f97316"   # orange - Crockett
     }
     
-    y_pos = 0
-    for lease, well_count in k.wells_per_lease.items():
-        if well_count > 0:
-            # Simulate drilling schedule
-            drill_months = well_count / k.rig_count * 1.5  # Simplified
-            
-            fig.add_trace(go.Bar(
-                y=[lease],
-                x=[drill_months],
-                base=[0],
-                orientation="h",
-                width=0.6,
-                marker={"color": colors.get(lease, "#666")},
-                hovertemplate=(
-                    f"{lease}<br>"
-                    f"Wells: {well_count}<br>"
-                    f"Duration: {drill_months:.1f} months<extra></extra>"
-                ),
-                showlegend=False
-            ))
+    # Prepare data for bar chart
+    leases = []
+    wells = []
+    basins = []
+    costs = []
+    
+    for lease_id in sorted(k.wells_per_lease.keys()):
+        well_count = k.wells_per_lease[lease_id]
+        if lease_id in TEXAS_LEASES:
+            lease_info = TEXAS_LEASES[lease_id]
+            leases.append(f"{lease_id}<br>({lease_info['basin']})")
+            wells.append(well_count)
+            basins.append(lease_info['basin'])
+            # Estimate cost based on basin (6 years production)
+            if lease_info['basin'] == 'Midland':
+                cost_per_well = 5.5  # $5.5M per well
+            elif lease_info['basin'] == 'Delaware':
+                cost_per_well = 6.0  # $6M per well
+            else:
+                cost_per_well = 4.5  # $4.5M per well
+            costs.append(well_count * cost_per_well)
+    
+    # Create bar chart
+    fig.add_trace(go.Bar(
+        x=leases,
+        y=wells,
+        marker=dict(
+            color=[colors.get(lease_id.split('<')[0], "#666") for lease_id in leases],
+            line=dict(color='rgba(0,0,0,0.3)', width=1)
+        ),
+        text=[f'{w} wells<br>${c:.1f}M' for w, c in zip(wells, costs)],
+        textposition='auto',
+        hovertemplate=(
+            "%{x}<br>"
+            "Wells: %{y}<br>"
+            "Est. Cost: $%{customdata:.1f}M<br>"
+            "<extra></extra>"
+        ),
+        customdata=costs
+    ))
     
     fig.update_layout(
-        barmode="stack",
         height=250,
-        xaxis_title="Months",
-        yaxis_title="",
-        xaxis=dict(range=[0, 24]),
-        margin=dict(l=80, r=10, t=10, b=30)
+        yaxis_title="Number of Wells",
+        xaxis_title="",
+        xaxis=dict(tickangle=-45),
+        margin=dict(l=50, r=10, t=10, b=80),
+        showlegend=False
     )
     
     client["timeline_chart"].figure = fig
@@ -484,17 +509,19 @@ def main() -> None:
                     ).classes('px-4')
                 
                 # Helper function to toggle lock state
-                def toggle_lock(lock_icon, slider):
+                def toggle_lock(lock_icon, control):
                     if lock_icon.name == 'lock_open':
                         lock_icon.name = 'lock'
                         lock_icon.classes(replace='cursor-pointer text-orange-600')
-                        slider._locked = True
-                        slider.props(add='color=orange')
+                        control._locked = True
+                        if hasattr(control, 'props'):
+                            control.props(add='color=orange')
                     else:
                         lock_icon.name = 'lock_open'
                         lock_icon.classes(replace='cursor-pointer text-gray-400')
-                        slider._locked = False
-                        slider.props(remove='color=orange')
+                        control._locked = False
+                        if hasattr(control, 'props'):
+                            control.props(remove='color=orange')
                 
                 with ui.column().classes('gap-2'):
                     # Economic parameters
@@ -568,45 +595,57 @@ def main() -> None:
                     
                     # Lease configuration
                     ui.label("Lease Selection").classes("font-bold")
-                    
-                    # Add optimizer control toggle
-                    optimizer_controls_wells = ui.switch(
-                        "Let optimizer control well selection",
-                        value=False
-                    ).props('color=orange')
-                    ui.label("When enabled, the optimizer will determine optimal well counts").classes("text-gray-600 text-xs")
+                    ui.label("Lock individual wells to prevent optimizer from changing them").classes("text-gray-600 text-xs")
                     
                     lease_toggles = {}
                     well_sliders = {}
                     well_labels = {}
+                    well_locks = {}
                     
                     for lease_id, config in TEXAS_LEASES.items():
                         with ui.row().classes('w-full items-center gap-2'):
                             lease_toggles[lease_id] = ui.switch(
                                 f"{lease_id} ({config['basin']})",
                                 value=True
-                            ).classes('flex-1')
+                            ).classes('flex-grow')
+                            
+                            initial_value = min(10, config["wells"])
+                            well_labels[lease_id] = ui.label(f"{initial_value} wells").classes("text-sm font-semibold text-gray-700 w-20 text-right")
+                            
+                            well_locks[lease_id] = ui.icon('lock_open', size='sm').classes('cursor-pointer text-gray-400')
+                            def toggle_well_lock(lid):
+                                lock = well_locks[lid]
+                                slider = well_sliders[lid]
+                                label = well_labels[lid]
+                                
+                                if lock.name == 'lock_open':
+                                    lock.name = 'lock'
+                                    lock.classes(replace='cursor-pointer text-orange-600')
+                                    slider._locked = True
+                                    slider.disable()
+                                    slider.props(add='color=orange')
+                                    label.classes(replace='text-sm font-semibold w-20 text-right text-orange-600')
+                                else:
+                                    lock.name = 'lock_open'
+                                    lock.classes(replace='cursor-pointer text-gray-400')
+                                    slider._locked = False
+                                    slider.enable()
+                                    slider.props(remove='color=orange')
+                                    label.classes(replace='text-sm font-semibold w-20 text-right text-gray-700')
+                            
+                            well_locks[lease_id].on('click', lambda lid=lease_id: toggle_well_lock(lid))
                             
                             well_sliders[lease_id] = ui.slider(
                                 min=0,
                                 max=config["wells"],
                                 step=1,
-                                value=min(10, config["wells"])
-                            ).props("thumb-label").classes("w-32").bind_enabled_from(
-                                optimizer_controls_wells, 'value', lambda v: not v
-                            )
+                                value=initial_value
+                            ).props("thumb-label").classes("w-32")
                             
-                            initial_value = min(10, config["wells"])
-                            well_labels[lease_id] = ui.label(f"{initial_value} wells").classes("text-sm font-semibold text-gray-700 w-16")
                             well_sliders[lease_id].on('update:model-value', 
                                 lambda e, lid=lease_id: well_labels[lid].set_text(f'{e.args} well{"s" if e.args != 1 else ""}')
                             )
-                            # Make label gray when optimizer controls wells
-                            optimizer_controls_wells.on('update:model-value', 
-                                lambda e, lid=lease_id: well_labels[lid].classes(
-                                    replace='text-sm font-semibold w-16 ' + ('text-gray-400' if e.args else 'text-gray-700')
-                                )
-                            )
+                            
                 
                 # Run optimization button
                 async def run_optimization() -> None:
@@ -620,9 +659,13 @@ def main() -> None:
                         'contingency_percent': getattr(contingency, '_locked', False),
                         'rig_count': getattr(rigs, '_locked', False),
                         'drilling_mode': getattr(drilling_mode, '_locked', False),
-                        'permit_delay': getattr(permit_delay, '_locked', False),
-                        'wells_per_lease': not optimizer_controls_wells.value
+                        'permit_delay': getattr(permit_delay, '_locked', False)
                     }
+                    
+                    # Collect individual well locks
+                    well_locked = {}
+                    for lease_id in TEXAS_LEASES:
+                        well_locked[lease_id] = getattr(well_sliders[lease_id], '_locked', False)
                     
                     # Build knobs from UI values
                     wells_per_lease = {}
@@ -633,16 +676,25 @@ def main() -> None:
                     if t_idx == 0 or client["best_knobs"] is None:
                         # Start with worst case
                         knobs = worst_case_knobs()
-                        if not optimizer_controls_wells.value:
-                            knobs.wells_per_lease = wells_per_lease
+                        # Use UI values for unlocked wells on first trial
+                        for lease_id in wells_per_lease:
+                            if not well_locked.get(lease_id, False):
+                                knobs.wells_per_lease[lease_id] = wells_per_lease[lease_id]
                     else:
                         # Perturb from best
                         # Increase minimum scale to 0.3 for more exploration
                         scale = max(0.3, 1.0 - (t_idx / IMPROVE_TRIALS))
-                        knobs = perturb_knobs(client["best_knobs"], scale, locked_params)
-                        # Only override well selection if optimizer is not controlling it
-                        if not optimizer_controls_wells.value:
-                            knobs.wells_per_lease = wells_per_lease
+                        knobs = perturb_knobs(client["best_knobs"], scale, locked_params, well_locked)
+                    
+                    # Override individually locked wells with UI values
+                    for lease_id, is_locked in well_locked.items():
+                        if is_locked and lease_id in wells_per_lease:
+                            knobs.wells_per_lease[lease_id] = wells_per_lease[lease_id]
+                    
+                    # Ensure all active leases have well counts
+                    for lease_id in TEXAS_LEASES:
+                        if lease_toggles[lease_id].value and lease_id not in knobs.wells_per_lease:
+                            knobs.wells_per_lease[lease_id] = 0
                     
                     # Update knobs from UI for locked parameters only
                     if locked_params.get('oil_price_forecast', False):
@@ -655,6 +707,14 @@ def main() -> None:
                         knobs.rig_count = rigs.value
                     if locked_params.get('drilling_mode', False):
                         knobs.drilling_mode = drilling_mode.value
+                    
+                    # Debug knobs before evaluation
+                    total_wells = sum(knobs.wells_per_lease.values())
+                    print(f"\nTrial {t_idx} - Before evaluation:")
+                    print(f"  Total wells to drill: {total_wells}")
+                    print(f"  Wells per lease: {knobs.wells_per_lease}")
+                    print(f"  Oil price: ${knobs.oil_price_forecast}/bbl")
+                    print(f"  Discount rate: {knobs.hurdle_rate*100:.1f}%")
                     
                     # Evaluate scenario
                     # Run synchronously to avoid pickling issues with OR-Tools
@@ -674,6 +734,13 @@ def main() -> None:
                         "risk_score": metrics.risk_score
                     }
                     
+                    # Debug output after evaluation
+                    print(f"Trial {t_idx} - After evaluation:")
+                    print(f"  NPV: ${metrics.total_npv/1e6:.1f}MM")
+                    print(f"  CAPEX: ${metrics.total_capex/1e6:.1f}MM")
+                    print(f"  Wells drilled: {metrics.wells_drilled}")
+                    print(f"  Peak production: {metrics.peak_production:.0f} boe/d")
+                    
                     # Update best solution
                     score = metrics.total_npv
                     if score > client["best_score"]:
@@ -686,20 +753,25 @@ def main() -> None:
                     # Update UI sliders to show optimized values (only for unlocked parameters)
                     if not locked_params.get('oil_price_forecast', False):
                         oil_price.value = knobs.oil_price_forecast
+                        oil_price_label.set_text(f'${knobs.oil_price_forecast}/bbl')
                     if not locked_params.get('hurdle_rate', False):
                         discount_rate.value = int(knobs.hurdle_rate * 100)
+                        discount_rate_label.set_text(f'{int(knobs.hurdle_rate * 100)}%')
                     if not locked_params.get('contingency_percent', False):
                         contingency.value = int(knobs.contingency_percent * 100)
+                        contingency_label.set_text(f'{int(knobs.contingency_percent * 100)}%')
                     if not locked_params.get('rig_count', False):
                         rigs.value = knobs.rig_count
+                        rigs_label.set_text(f'{knobs.rig_count} rig{"s" if knobs.rig_count != 1 else ""}')
                     if not locked_params.get('drilling_mode', False):
                         drilling_mode.value = knobs.drilling_mode
                     
-                    # Update well sliders if optimizer controls them
-                    if optimizer_controls_wells.value:
-                        for lease_id in knobs.wells_per_lease:
-                            if lease_id in well_sliders:
-                                well_sliders[lease_id].value = knobs.wells_per_lease[lease_id]
+                    # Update well sliders for unlocked wells
+                    for lease_id in knobs.wells_per_lease:
+                        if lease_id in well_sliders and not well_locked.get(lease_id, False):
+                            well_count = knobs.wells_per_lease[lease_id]
+                            well_sliders[lease_id].value = well_count
+                            well_labels[lease_id].set_text(f'{well_count} well{"s" if well_count != 1 else ""}')
                 
                 # Connect button to function
                 optimize_button.on_click(run_optimization)
@@ -707,7 +779,7 @@ def main() -> None:
             # RIGHT VISUALIZATION AREA
             with ui.column().classes('flex-1 gap-4'):
                 
-                # Metrics and economics row
+                # Metrics and wells per lease row
                 with ui.row().classes('w-full gap-4'):
                     with ui.column():
                         # Metrics card
@@ -720,9 +792,9 @@ def main() -> None:
                             )
                     
                     with ui.column():
-                        # Economics sensitivity
-                        ui.label("NPV Sensitivity").classes("text-lg font-bold")
-                        client["economics_chart"] = ui.plotly(go.Figure()).classes(
+                        # Wells per lease
+                        ui.label("Wells Drilled per Lease").classes("text-lg font-bold")
+                        client["timeline_chart"] = ui.plotly(go.Figure()).classes(
                             'w-full'
                         ).style('width:400px;height:250px')
                 
@@ -739,11 +811,11 @@ def main() -> None:
                         'w-full'
                     ).style('height:350px')
                 
-                # Drilling timeline and production forecast
+                # NPV sensitivity and production forecast
                 with ui.row().classes('w-full gap-4'):
                     with ui.column().classes('flex-1'):
-                        ui.label("Drilling Timeline").classes("text-lg font-bold")
-                        client["timeline_chart"] = ui.plotly(go.Figure()).classes(
+                        ui.label("NPV Sensitivity").classes("text-lg font-bold")
+                        client["economics_chart"] = ui.plotly(go.Figure()).classes(
                             'w-full'
                         ).style('height:250px')
                     
