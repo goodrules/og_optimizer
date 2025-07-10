@@ -1,6 +1,7 @@
 """
-Gemini 2.5 Pro integration for Oil & Gas Field Development Optimizer
+Gemini 2.5 Pro/Flash integration for Oil & Gas Field Development Optimizer
 Handles controlled generation and chat interactions
+Supports model selection between Pro (accuracy) and Flash (speed)
 """
 import os
 import json
@@ -35,7 +36,7 @@ class ChatContext:
 class GeminiOptimizationClient:
     """Client for interacting with Gemini 2.5 Pro for optimization guidance via Vertex AI"""
     
-    def __init__(self, project_id: Optional[str] = None, region: Optional[str] = None):
+    def __init__(self, project_id: Optional[str] = None, region: Optional[str] = None, model_name: Optional[str] = None):
         """Initialize Gemini client with Vertex AI configuration"""
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID")
         self.region = region or os.getenv("GCP_REGION", "us-central1")
@@ -50,8 +51,8 @@ class GeminiOptimizationClient:
             location=self.region
         )
         
-        # Model configuration
-        self.model_name = "gemini-2.5-pro"
+        # Model configuration - default to pro model
+        self.model_name = model_name or "gemini-2.5-pro"
         
         # Generation config for structured output
         self.structured_config = {
@@ -298,15 +299,25 @@ class GeminiOptimizationClient:
     def clear_history(self) -> None:
         """Clear the chat history"""
         self.context.history = []
+    
+    def set_model(self, model_name: str) -> None:
+        """Change the model being used"""
+        if model_name in ["gemini-2.5-pro", "gemini-2.5-flash"]:
+            self.model_name = model_name
+        else:
+            raise ValueError(f"Invalid model name: {model_name}. Must be 'gemini-2.5-pro' or 'gemini-2.5-flash'")
 
 
 # Singleton instance for the application
 _gemini_client = None
 
 
-def get_gemini_client() -> GeminiOptimizationClient:
+def get_gemini_client(model_name: Optional[str] = None) -> GeminiOptimizationClient:
     """Get or create the Gemini client singleton"""
     global _gemini_client
     if _gemini_client is None:
-        _gemini_client = GeminiOptimizationClient()
+        _gemini_client = GeminiOptimizationClient(model_name=model_name)
+    elif model_name and _gemini_client.model_name != model_name:
+        # Update the model if requested
+        _gemini_client.set_model(model_name)
     return _gemini_client

@@ -502,7 +502,7 @@ def main() -> None:
         
         # AI Assistant Chat - Compact version at top
         with ui.card().classes('w-full p-3 mb-4'):
-            # AI response area - expandable with markdown
+            # Model selection and AI response area
             with ui.row().classes('w-full items-start gap-3 mb-2'):
                 ui.icon("smart_toy", size="sm").classes("text-blue-600 mt-1")
                 ui.label("AI:").classes("font-semibold mt-1")
@@ -511,15 +511,29 @@ def main() -> None:
                 chat_display = ui.markdown("Ask me to set parameters or analyze results...").classes(
                     'flex-1 text-sm text-gray-600'
                 ).style('max-height: 200px; overflow-y: auto;')
+                
+                # Model selector dropdown
+                model_selector = ui.select(
+                    options=["gemini-2.5-pro", "gemini-2.5-flash"],
+                    value="gemini-2.5-pro",
+                    label="Model"
+                ).classes('w-40').props('outlined dense')
             
             # User input line
             with ui.row().classes('w-full items-center gap-2'):
                 ui.label("You:").classes("font-semibold text-gray-700")
                 
-                # Initialize Gemini client
+                # Initialize Gemini client with selected model
                 try:
-                    gemini_client = get_gemini_client()
+                    gemini_client = get_gemini_client(model_selector.value)
                     client["gemini_client"] = gemini_client
+                    
+                    # Update model when selection changes
+                    def on_model_change():
+                        client["gemini_client"].set_model(model_selector.value)
+                        chat_display.set_content(f"Switched to {model_selector.value}. Ask me to set parameters or analyze results...")
+                    
+                    model_selector.on('update:model-value', on_model_change)
                     
                     # Input field - full width
                     chat_input = ui.input(

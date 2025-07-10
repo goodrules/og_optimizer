@@ -11,7 +11,7 @@ The Oil & Gas Field Development Optimizer started as a general work package opti
 - **Economic Optimization**: Maximize NPV across multiple drilling locations using heuristic search algorithms
 - **Risk Assessment**: Calculate and visualize risk scores based on portfolio characteristics
 - **Texas Focus**: Pre-configured for 5 Texas leases in Permian and Delaware basins
-- **AI Assistant**: Integrated Gemini 2.0 Flash for natural language interaction and parameter optimization
+- **AI Assistant**: Integrated Gemini 2.5 Pro/Flash models for natural language interaction and parameter optimization
 - **Real-time Visualization**: Interactive charts showing production forecasts, economics, and optimization history
 - **Constraint-based Planning**: Respect budget limits, rig availability, and operational constraints
 - **Monte Carlo Simulation**: Uncertainty analysis for oil prices and cost variations (optional)
@@ -23,7 +23,7 @@ The Oil & Gas Field Development Optimizer started as a general work package opti
 │                           Web UI (NiceGUI)                       │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐  │
 │  │  Control Panel  │  │  Visualizations │  │  AI Assistant  │  │
-│  │  - Economics    │  │  - Timeline     │  │  - Gemini 2.0  │  │
+│  │  - Economics    │  │  - Timeline     │  │  - Gemini 2.5  │  │
 │  │  - Drilling     │  │  - Production   │  │  - Chat UI     │  │
 │  │  - Leases       │  │  - Sensitivity  │  │                │  │
 │  └────────┬────────┘  └────────┬────────┘  └────────┬───────┘  │
@@ -99,6 +99,7 @@ The application will open in your web browser at http://localhost:8080
    - Set parameters: "Set up a conservative development plan"
    - Ask questions: "What's the current NPV and risk?"
    - Request optimization: "Optimize for maximum production"
+   - Select AI model: Choose between Gemini 2.5 Pro (more accurate) or Flash (faster responses)
 
 3. **Optimization**: Click "Optimize Development" to run the heuristic optimizer
 
@@ -125,7 +126,7 @@ og_optimizer/
 │       ├── economics.py           # NPV/IRR/payback calculations
 │       ├── decline_curves.py      # Hyperbolic production decline modeling
 │       ├── monte_carlo.py         # Uncertainty analysis & risk assessment
-│       ├── gemini_client.py       # AI assistant using Gemini 2.0 Flash
+│       ├── gemini_client.py       # AI assistant using Gemini 2.5 Pro/Flash
 │       ├── data_model.py          # Data structures for leases/wells
 │       ├── schema.py              # Parameter validation & constraints
 │       ├── system_prompt.py       # AI system prompts & instructions
@@ -175,7 +176,8 @@ og_optimizer/
 - Provides risk-adjusted metrics
 
 ### AI Integration (`gemini_client.py`)
-- Natural language interface using Gemini 2.0 Flash
+- Natural language interface using Gemini 2.5 Pro or Flash models
+- Selectable model via UI dropdown (Pro for accuracy, Flash for speed)
 - Function calling for parameter adjustment
 - Context-aware responses about optimization state
 - Helps users explore scenarios through conversation
@@ -245,8 +247,9 @@ MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
+- Inspired and expanded from the codebase available at: https://github.com/ssizan01/vizier_or_tools
 - Built on the architecture of the original work package optimizer
 - Uses Google OR-Tools for constraint programming
-- Powered by Gemini 2.0 Flash for AI capabilities
+- Powered by Gemini 2.5 Pro/Flash for AI capabilities
 - NiceGUI for reactive web interface
 - Plotly for interactive visualizations
