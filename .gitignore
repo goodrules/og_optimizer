@@ -183,3 +183,4 @@ cython_debug/
 # local ignores
 local/
 .mcp.json
+.claude
