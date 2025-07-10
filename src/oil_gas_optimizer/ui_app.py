@@ -4,6 +4,7 @@ Adapted from the work package optimizer UI in local/main.py
 """
 import math
 import random
+import asyncio
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -22,6 +23,8 @@ from .heuristic_optimizer import (
 from .economics import WellEconomics, EconomicParameters
 from .data_model import generate_texas_wells
 from .monte_carlo import MonteCarloParameters
+from .gemini_client import get_gemini_client
+from .schema import apply_params_to_ui
 
 # Constants
 IMPROVE_TRIALS = 20  # Number of trials for visual convergence
@@ -496,6 +499,143 @@ def main() -> None:
     
     # Main layout
     with ui.column().classes('w-full p-4').style('max-width:1600px;margin:0 auto'):
+        
+        # AI Assistant Chat - Compact version at top
+        with ui.card().classes('w-full p-3 mb-4'):
+            # AI response area - expandable with markdown
+            with ui.row().classes('w-full items-start gap-3 mb-2'):
+                ui.icon("smart_toy", size="sm").classes("text-blue-600 mt-1")
+                ui.label("AI:").classes("font-semibold mt-1")
+                
+                # Chat display area - expandable markdown
+                chat_display = ui.markdown("Ask me to set parameters or analyze results...").classes(
+                    'flex-1 text-sm text-gray-600'
+                ).style('max-height: 200px; overflow-y: auto;')
+            
+            # User input line
+            with ui.row().classes('w-full items-center gap-2'):
+                ui.label("You:").classes("font-semibold text-gray-700")
+                
+                # Initialize Gemini client
+                try:
+                    gemini_client = get_gemini_client()
+                    client["gemini_client"] = gemini_client
+                    
+                    # Input field - full width
+                    chat_input = ui.input(
+                        placeholder="e.g., 'Set conservative plan' or 'What's the current NPV?'"
+                    ).classes('flex-1').props('outlined dense')
+                    
+                    async def send_message():
+                        """Process chat message and update UI with streaming"""
+                        message = chat_input.value
+                        if not message:
+                            return
+                        
+                        # Clear input immediately
+                        chat_input.value = ""
+                        
+                        # Update Gemini context with current data
+                        if client["trials"]:
+                            latest_trial = client["trials"][-1]
+                            trial_data = {
+                                "trial_number": len(client["trials"]),
+                                "npv_mm": latest_trial["metrics"]["total_npv"] / 1e6,
+                                "capex_mm": latest_trial["metrics"]["total_capex"] / 1e6,
+                                "wells_selected": latest_trial["metrics"]["wells_selected"],
+                                "risk_score": latest_trial["metrics"]["risk_score"] * 100,
+                                "avg_production": latest_trial["metrics"]["peak_production"],
+                                "npv_per_dollar": latest_trial["metrics"]["npv_per_dollar"]
+                            }
+                            
+                            current_params = {
+                                "oil_price": oil_price.value,
+                                "discount_rate": discount_rate.value,
+                                "contingency": contingency.value,
+                                "budget": budget.value,
+                                "rigs": rigs.value,
+                                "drilling_mode": drilling_mode.value,
+                                "permit_delay": permit_delay.value,
+                                "wells_per_lease": {
+                                    lease_id: well_sliders[lease_id].value
+                                    for lease_id in TEXAS_LEASES
+                                }
+                            }
+                            
+                            client["gemini_client"].update_context(trial_data, current_params)
+                        
+                        # Show user prompt first
+                        chat_display.set_content(f"**You:** {message}\n\n**AI:** _Thinking..._")
+                        
+                        # Define callback for streaming updates
+                        async def update_stream(text: str, param_updates: Optional[Dict] = None, is_final: bool = False):
+                            """Handle streaming updates from Gemini"""
+                            # Update the markdown display with accumulated text
+                            chat_display.set_content(f"**You:** {message}\n\n**AI:** {text}")
+                            
+                            # If this is the final update with parameters
+                            if is_final and param_updates:
+                                # Apply parameter updates
+                                ui_elements = {
+                                    "oil_price": oil_price,
+                                    "discount_rate": discount_rate,
+                                    "contingency": contingency,
+                                    "budget": budget,
+                                    "rigs": rigs,
+                                    "drilling_mode": drilling_mode,
+                                    "permit_delay": permit_delay,
+                                    "well_sliders": well_sliders,
+                                    "oil_price_lock": oil_price_lock,
+                                    "discount_rate_lock": discount_rate_lock,
+                                    "contingency_lock": contingency_lock,
+                                    "rigs_lock": rigs_lock,
+                                    "drilling_mode_lock": drilling_mode_lock,
+                                    "permit_delay_lock": permit_delay_lock,
+                                    "well_locks": well_locks,
+                                    "well_labels": well_labels
+                                }
+                                
+                                # Apply the updates
+                                applied = apply_params_to_ui(param_updates, ui_elements)
+                                
+                                # Update labels
+                                if "oil_price" in applied:
+                                    oil_price_label.set_text(f'${oil_price.value}/bbl')
+                                if "discount_rate" in applied:
+                                    discount_rate_label.set_text(f'{discount_rate.value}%')
+                                if "contingency" in applied:
+                                    contingency_label.set_text(f'{contingency.value}%')
+                                if "budget" in applied:
+                                    budget_label.set_text(f'${budget.value}MM')
+                                if "rigs" in applied:
+                                    rigs_label.set_text(f'{rigs.value} rig{"s" if rigs.value != 1 else ""}')
+                                if "permit_delay" in applied:
+                                    permit_delay_label.set_text(f'{permit_delay.value} days')
+                                
+                                # Update well labels
+                                for lease_id in TEXAS_LEASES:
+                                    if f"wells_{lease_id}" in applied:
+                                        count = well_sliders[lease_id].value
+                                        well_labels[lease_id].set_text(f'{count} well{"s" if count != 1 else ""}')
+                                
+                                # Flash the optimize button to indicate parameters changed
+                                optimize_button.classes(add='animate-pulse')
+                                await asyncio.sleep(2)
+                                optimize_button.classes(remove='animate-pulse')
+                        
+                        try:
+                            # Get streaming response from Gemini
+                            await client["gemini_client"].process_message_stream(message, update_stream)
+                                
+                        except Exception as e:
+                            chat_display.set_content(f"**You:** {message}\n\n**AI Error:** {str(e)}")
+                    
+                    send_button = ui.button(icon="send", on_click=send_message).props('round dense flat')
+                    chat_input.on('keydown.enter', send_message)
+                    
+                except Exception as e:
+                    chat_display.set_content("**AI Assistant unavailable.** Set GCP_PROJECT_ID and authenticate with gcloud.")
+        
         with ui.row().classes('w-full gap-4'):
             
             # LEFT CONTROL PANEL

@@ -99,6 +99,48 @@ OPTIMIZATION_PARAMS_SCHEMA = {
                 }
             },
             "required": []
+        },
+        "parameter_locks": {
+            "description": "Lock or unlock specific parameters to control optimizer behavior",
+            "type": "OBJECT",
+            "properties": {
+                "lock_oil_price": {
+                    "description": "Lock the oil price slider to prevent optimizer from changing it",
+                    "type": "BOOLEAN"
+                },
+                "lock_discount_rate": {
+                    "description": "Lock the discount rate slider",
+                    "type": "BOOLEAN"
+                },
+                "lock_contingency": {
+                    "description": "Lock the contingency percentage slider",
+                    "type": "BOOLEAN"
+                },
+                "lock_rigs": {
+                    "description": "Lock the number of rigs slider",
+                    "type": "BOOLEAN"
+                },
+                "lock_drilling_mode": {
+                    "description": "Lock the drilling mode toggle",
+                    "type": "BOOLEAN"
+                },
+                "lock_permit_delay": {
+                    "description": "Lock the permit delay slider",
+                    "type": "BOOLEAN"
+                },
+                "lock_wells": {
+                    "description": "Lock specific lease well counts. Use lease IDs as keys with boolean values",
+                    "type": "OBJECT",
+                    "properties": {
+                        "MIDLAND_A": {"type": "BOOLEAN"},
+                        "MARTIN_B": {"type": "BOOLEAN"},
+                        "REEVES_C": {"type": "BOOLEAN"},
+                        "LOVING_D": {"type": "BOOLEAN"},
+                        "HOWARD_E": {"type": "BOOLEAN"}
+                    }
+                }
+            },
+            "required": []
         }
     },
     "required": []
@@ -250,5 +292,80 @@ def apply_params_to_ui(params: dict, ui_elements: dict) -> dict:
             if lease in ui_elements["well_sliders"]:
                 ui_elements["well_sliders"][lease].value = count
                 applied[f"wells_{lease}"] = count
+    
+    # Apply parameter locks
+    if "parameter_locks" in params:
+        locks = params["parameter_locks"]
+        
+        # Helper function to apply lock state
+        def apply_lock(lock_icon, control, should_lock):
+            current_state = lock_icon.name == 'lock'
+            if current_state != should_lock:
+                if should_lock:
+                    lock_icon.name = 'lock'
+                    lock_icon.classes(replace='cursor-pointer text-orange-600')
+                    control._locked = True
+                    if hasattr(control, 'props'):
+                        control.props(add='color=orange')
+                else:
+                    lock_icon.name = 'lock_open'
+                    lock_icon.classes(replace='cursor-pointer text-gray-400')
+                    control._locked = False
+                    if hasattr(control, 'props'):
+                        control.props(remove='color=orange')
+        
+        if "lock_oil_price" in locks and "oil_price_lock" in ui_elements and "oil_price" in ui_elements:
+            apply_lock(ui_elements["oil_price_lock"], ui_elements["oil_price"], locks["lock_oil_price"])
+            applied["lock_oil_price"] = locks["lock_oil_price"]
+            
+        if "lock_discount_rate" in locks and "discount_rate_lock" in ui_elements and "discount_rate" in ui_elements:
+            apply_lock(ui_elements["discount_rate_lock"], ui_elements["discount_rate"], locks["lock_discount_rate"])
+            applied["lock_discount_rate"] = locks["lock_discount_rate"]
+            
+        if "lock_contingency" in locks and "contingency_lock" in ui_elements and "contingency" in ui_elements:
+            apply_lock(ui_elements["contingency_lock"], ui_elements["contingency"], locks["lock_contingency"])
+            applied["lock_contingency"] = locks["lock_contingency"]
+            
+        if "lock_rigs" in locks and "rigs_lock" in ui_elements and "rigs" in ui_elements:
+            apply_lock(ui_elements["rigs_lock"], ui_elements["rigs"], locks["lock_rigs"])
+            applied["lock_rigs"] = locks["lock_rigs"]
+            
+        if "lock_drilling_mode" in locks and "drilling_mode_lock" in ui_elements and "drilling_mode" in ui_elements:
+            apply_lock(ui_elements["drilling_mode_lock"], ui_elements["drilling_mode"], locks["lock_drilling_mode"])
+            applied["lock_drilling_mode"] = locks["lock_drilling_mode"]
+            
+        if "lock_permit_delay" in locks and "permit_delay_lock" in ui_elements and "permit_delay" in ui_elements:
+            apply_lock(ui_elements["permit_delay_lock"], ui_elements["permit_delay"], locks["lock_permit_delay"])
+            applied["lock_permit_delay"] = locks["lock_permit_delay"]
+            
+        # Handle well locks - need special handling for well sliders
+        if "lock_wells" in locks and "well_locks" in ui_elements and "well_sliders" in ui_elements:
+            for lease, should_lock in locks["lock_wells"].items():
+                if lease in ui_elements["well_locks"] and lease in ui_elements["well_sliders"]:
+                    lock_icon = ui_elements["well_locks"][lease]
+                    slider = ui_elements["well_sliders"][lease]
+                    
+                    current_state = lock_icon.name == 'lock'
+                    if current_state != should_lock:
+                        if should_lock:
+                            lock_icon.name = 'lock'
+                            lock_icon.classes(replace='cursor-pointer text-orange-600')
+                            slider._locked = True
+                            slider.disable()
+                            slider.props(add='color=orange')
+                            # Update label color if available
+                            if "well_labels" in ui_elements and lease in ui_elements["well_labels"]:
+                                ui_elements["well_labels"][lease].classes(replace='text-sm font-semibold w-20 text-right text-orange-600')
+                        else:
+                            lock_icon.name = 'lock_open'
+                            lock_icon.classes(replace='cursor-pointer text-gray-400')
+                            slider._locked = False
+                            slider.enable()
+                            slider.props(remove='color=orange')
+                            # Update label color if available
+                            if "well_labels" in ui_elements and lease in ui_elements["well_labels"]:
+                                ui_elements["well_labels"][lease].classes(replace='text-sm font-semibold w-20 text-right text-gray-700')
+                    
+                    applied[f"lock_wells_{lease}"] = should_lock
     
     return applied
