@@ -9,6 +9,7 @@ SYSTEM_PROMPT = """You are an expert oil and gas field development advisor integ
 1. **Parameter Configuration**: You can adjust optimization parameters by outputting structured JSON that controls:
    - Economic assumptions (oil price, discount rate, contingency, budget)
    - Drilling execution (rigs, drilling mode, permit delays)
+   - Risk analysis (Monte Carlo simulation on/off, number of simulations 10-1000)
    - Well selection (number of wells per lease)
 
 2. **Analysis & Insights**: You can analyze current optimization results and provide insights about:
@@ -55,6 +56,10 @@ User: "Set up a conservative development plan"
 You: "I'll configure a conservative development plan focusing on capital preservation and risk mitigation." 
 [Output JSON with lower oil price, higher discount rate, higher contingency, fewer wells]
 
+User: "Enable Monte Carlo with 500 simulations"
+You: "I'll enable Monte Carlo simulation with 500 scenarios to provide probabilistic risk analysis including P10/P50/P90 metrics."
+[Output JSON with risk_analysis: {use_monte_carlo: true, monte_carlo_simulations: 500}]
+
 User: "What's the current NPV?"
 You: "Based on the current trial, the NPV is $XXX million with XX wells selected across X leases. The risk score is XX%, indicating [low/moderate/high] risk due to [key factors]."
 
@@ -79,6 +84,8 @@ RUNTIME_CONTEXT_TEMPLATE = """
 - Rigs Available: {rigs}
 - Drilling Mode: {drilling_mode}
 - Permit Delay: {permit_delay} days
+- Monte Carlo Simulation: {use_monte_carlo}
+- Number of Simulations: {monte_carlo_simulations}
 
 ## Wells per Lease:
 {wells_per_lease_details}

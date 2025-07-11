@@ -341,14 +341,21 @@ def worst_case_knobs() -> OptimizationKnobs:
 def evaluate_scenario(
     knobs: OptimizationKnobs,
     available_wells: List[WellEconomics],
-    capex_budget: float
+    capex_budget: float,
+    run_monte_carlo: bool = False,
+    n_simulations: int = 100
 ) -> OptimizationMetrics:
     """Evaluate a set of knobs by creating and evaluating a scenario."""
     print(f"\n--- evaluate_scenario ---")
     print(f"Available wells: {len(available_wells)}")
     print(f"CAPEX budget: ${capex_budget/1e6:.1f}MM")
+    print(f"Run Monte Carlo: {run_monte_carlo}")
+    if run_monte_carlo:
+        print(f"Monte Carlo simulations: {n_simulations}")
     
     scenario = DrillingScenario.from_knobs(knobs, available_wells, capex_budget)
+    scenario.run_monte_carlo = run_monte_carlo
+    scenario.mc_simulations = n_simulations
     print(f"Selected wells for scenario: {len(scenario.selected_wells)}")
     print(f"Budget after contingency: ${scenario.constraints.total_capex_budget/1e6:.1f}MM")
     

@@ -105,6 +105,8 @@ class GeminiOptimizationClient:
             rigs=params.get("rigs", 2),
             drilling_mode=params.get("drilling_mode", "continuous"),
             permit_delay=params.get("permit_delay", 30),
+            use_monte_carlo="Enabled" if params.get("use_monte_carlo", False) else "Disabled",
+            monte_carlo_simulations=params.get("monte_carlo_simulations", 100),
             wells_per_lease_details="\n".join(wells_details) if wells_details else "No wells selected"
         )
     
@@ -129,7 +131,8 @@ class GeminiOptimizationClient:
         param_keywords = [
             "set", "change", "adjust", "update", "configure",
             "conservative", "aggressive", "moderate",
-            "increase", "decrease", "optimize for"
+            "increase", "decrease", "optimize for",
+            "monte carlo", "enable", "disable", "simulation", "simulations"
         ]
         
         is_param_request = any(keyword in user_message.lower() for keyword in param_keywords)
@@ -253,6 +256,16 @@ class GeminiOptimizationClient:
                 descriptions.append(f"drilling mode to {drill['drilling_mode']}")
             if "permit_delay_days" in drill:
                 descriptions.append(f"permit delay to {drill['permit_delay_days']} days")
+        
+        if "risk_analysis" in params:
+            risk = params["risk_analysis"]
+            if "use_monte_carlo" in risk:
+                if risk["use_monte_carlo"]:
+                    descriptions.append("enabled Monte Carlo simulation")
+                else:
+                    descriptions.append("disabled Monte Carlo simulation")
+            if "monte_carlo_simulations" in risk:
+                descriptions.append(f"Monte Carlo simulations to {risk['monte_carlo_simulations']}")
         
         if "well_selection" in params:
             wells = params["well_selection"]

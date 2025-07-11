@@ -90,8 +90,29 @@ def update_metrics_card(idx: int, client: Dict) -> None:
     npv_improvement = m["total_npv"] - initial_npv
     color = "text-green-600" if npv_improvement > 0 else "text-gray-800"
     
+    # Build stats display with consistent layout
+    monte_carlo_row = ""
+    if m.get('run_monte_carlo', False) and 'p10_npv' in m:
+        # Add Monte Carlo row only when available
+        monte_carlo_row = f"""
+          <!-- Row 3 - Monte Carlo Results -->
+          <div><div class="text-gray-500 text-sm">P10 NPV (Downside)</div>
+               <div class="text-xl font-bold text-red-600">${m['p10_npv']/1e6:.1f}MM</div></div>
+               
+          <div><div class="text-gray-500 text-sm">P50 NPV (Expected)</div>
+               <div class="text-xl font-bold">${m['total_npv']/1e6:.1f}MM</div></div>
+               
+          <div><div class="text-gray-500 text-sm">P90 NPV (Upside)</div>
+               <div class="text-xl font-bold text-green-600">${m['p90_npv']/1e6:.1f}MM</div></div>
+               
+          <div><div class="text-gray-500 text-sm">Prob. NPV > 0</div>
+               <div class="text-xl font-bold">{m['probability_positive']:.0%}</div>
+               <div class="text-xs text-gray-600">{m.get('n_simulations', 100)} simulations</div></div>
+        """
+    
     client["stats_html"].content = f"""
     <div class="grid grid-cols-4 gap-x-4 gap-y-2">
+      <!-- Row 1 -->
       <div><div class="text-gray-500 text-sm">Total NPV</div>
            <div class="text-2xl font-bold">${m['total_npv']/1e6:.1f}MM</div></div>
            
@@ -116,6 +137,8 @@ def update_metrics_card(idx: int, client: Dict) -> None:
            
       <div><div class="text-gray-500 text-sm">Risk Score</div>
            <div class="text-2xl font-bold">{m.get('risk_score', 0.5):.0%}</div></div>
+           
+      {monte_carlo_row}
     </div>"""
 
 
@@ -570,6 +593,8 @@ def main() -> None:
                                 "rigs": rigs.value,
                                 "drilling_mode": drilling_mode.value,
                                 "permit_delay": permit_delay.value,
+                                "use_monte_carlo": monte_carlo_toggle.value,
+                                "monte_carlo_simulations": int(n_simulations.value),
                                 "wells_per_lease": {
                                     lease_id: well_sliders[lease_id].value
                                     for lease_id in TEXAS_LEASES
@@ -598,6 +623,8 @@ def main() -> None:
                                     "rigs": rigs,
                                     "drilling_mode": drilling_mode,
                                     "permit_delay": permit_delay,
+                                    "monte_carlo_toggle": monte_carlo_toggle,
+                                    "n_simulations": n_simulations,
                                     "well_sliders": well_sliders,
                                     "oil_price_lock": oil_price_lock,
                                     "discount_rate_lock": discount_rate_lock,
@@ -661,6 +688,27 @@ def main() -> None:
                         icon="psychology",
                         color="green"
                     ).classes('px-4')
+                
+                # Monte Carlo settings directly under optimize button
+                with ui.column().classes('gap-2 mb-3'):
+                    with ui.row().classes('w-full items-center gap-2'):
+                        monte_carlo_toggle = ui.switch(
+                            "Use Monte Carlo Simulation",
+                            value=False
+                        ).classes('text-sm')
+                    with ui.row().classes('w-full items-center gap-2'):
+                        ui.label("Simulations:").classes("text-sm text-gray-600")
+                        n_simulations = ui.number(
+                            value=100,
+                            min=10,
+                            max=1000,
+                            step=10,
+                            format='%d'
+                        ).classes('w-24').props('dense outlined')
+                        ui.label("(10-1000)").classes("text-xs text-gray-500")
+                    # Disable simulations input when toggle is off
+                    monte_carlo_toggle.on('update:model-value', lambda e: n_simulations.set_enabled(e.args))
+                    n_simulations.set_enabled(False)  # Start disabled
                 
                 # Helper function to toggle lock state
                 def toggle_lock(lock_icon, control):
@@ -893,7 +941,9 @@ def main() -> None:
                     metrics = evaluate_scenario(
                         knobs,
                         client["wells"],
-                        budget.value * 1_000_000  # Convert MM to dollars
+                        budget.value * 1_000_000,  # Convert MM to dollars
+                        run_monte_carlo=monte_carlo_toggle.value,
+                        n_simulations=int(n_simulations.value) if monte_carlo_toggle.value else 100
                     )
                     
                     # Convert to dict format
@@ -903,8 +953,16 @@ def main() -> None:
                         "npv_per_dollar": metrics.npv_per_dollar,
                         "peak_production": metrics.peak_production,
                         "wells_selected": sum(knobs.wells_per_lease.values()),  # Total wells from UI
-                        "risk_score": metrics.risk_score
+                        "risk_score": metrics.risk_score,
+                        "run_monte_carlo": monte_carlo_toggle.value
                     }
+                    
+                    # Add Monte Carlo results if available
+                    if metrics.p10_npv is not None:
+                        metrics_dict["p10_npv"] = metrics.p10_npv
+                        metrics_dict["p90_npv"] = metrics.p90_npv
+                        metrics_dict["probability_positive"] = metrics.probability_positive
+                        metrics_dict["n_simulations"] = int(n_simulations.value)
                     
                     # Debug output after evaluation
                     print(f"Trial {t_idx} - After evaluation:")
@@ -958,7 +1016,7 @@ def main() -> None:
                         # Metrics card
                         client["stats_card"] = ui.card().classes(
                             'p-4'
-                        ).style('width:700px;height:230px')
+                        ).style('width:700px;min-height:230px')
                         with client["stats_card"]:
                             client["stats_html"] = ui.html(
                                 '<div class="text-gray-500">Click "Optimize Development" to see results</div>'

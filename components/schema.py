@@ -51,6 +51,21 @@ OPTIMIZATION_PARAMS_SCHEMA = {
             },
             "required": []
         },
+        "risk_analysis": {
+            "description": "Risk analysis configuration including Monte Carlo simulation",
+            "type": "OBJECT",
+            "properties": {
+                "use_monte_carlo": {
+                    "description": "Enable Monte Carlo simulation for probabilistic risk analysis",
+                    "type": "BOOLEAN"
+                },
+                "monte_carlo_simulations": {
+                    "description": "Number of Monte Carlo simulation scenarios to run (range: 10-1000)",
+                    "type": "INTEGER"
+                }
+            },
+            "required": []
+        },
         "well_selection": {
             "description": "Number of wells to drill per lease",
             "type": "OBJECT",
@@ -197,6 +212,14 @@ def validate_optimization_params(params: dict) -> tuple[bool, list[str]]:
             if drill["permit_delay_days"] % 5 != 0:
                 errors.append("permit_delay_days must be in increments of 5")
     
+    # Validate risk analysis
+    if "risk_analysis" in params:
+        risk = params["risk_analysis"]
+        
+        if "monte_carlo_simulations" in risk:
+            if not 10 <= risk["monte_carlo_simulations"] <= 1000:
+                errors.append("monte_carlo_simulations must be between 10 and 1000")
+    
     # Validate well selection
     if "well_selection" in params:
         wells = params["well_selection"]
@@ -283,6 +306,22 @@ def apply_params_to_ui(params: dict, ui_elements: dict) -> dict:
         if "permit_delay_days" in drill and "permit_delay" in ui_elements:
             ui_elements["permit_delay"].value = drill["permit_delay_days"]
             applied["permit_delay"] = drill["permit_delay_days"]
+    
+    # Apply risk analysis
+    if "risk_analysis" in params:
+        risk = params["risk_analysis"]
+        
+        if "use_monte_carlo" in risk and "monte_carlo_toggle" in ui_elements:
+            ui_elements["monte_carlo_toggle"].value = risk["use_monte_carlo"]
+            applied["use_monte_carlo"] = risk["use_monte_carlo"]
+            
+            # Enable/disable simulations input based on toggle
+            if "n_simulations" in ui_elements:
+                ui_elements["n_simulations"].set_enabled(risk["use_monte_carlo"])
+            
+        if "monte_carlo_simulations" in risk and "n_simulations" in ui_elements:
+            ui_elements["n_simulations"].value = risk["monte_carlo_simulations"]
+            applied["monte_carlo_simulations"] = risk["monte_carlo_simulations"]
     
     # Apply well selection
     if "well_selection" in params and "well_sliders" in ui_elements:
