@@ -137,7 +137,7 @@ class OperationalRiskModel:
 @dataclass
 class MonteCarloParameters:
     """Parameters for Monte Carlo simulation."""
-    n_simulations: int = 1000
+    n_simulations: int = 100
     oil_price_volatility: float = 0.25
     cost_uncertainty: float = 0.15
     mechanical_failure_rate: float = 0.07
