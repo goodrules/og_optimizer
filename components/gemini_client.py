@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 from .system_prompt import SYSTEM_PROMPT, RUNTIME_CONTEXT_TEMPLATE
 from .schema import OPTIMIZATION_PARAMS_SCHEMA, validate_optimization_params
@@ -20,6 +21,9 @@ from .schema import OPTIMIZATION_PARAMS_SCHEMA, validate_optimization_params
 # Load environment variables from .env file
 load_dotenv()
 
+tools = [
+    types.Tool(google_search=types.GoogleSearch())
+    ]
 
 @dataclass
 class ChatContext:
@@ -67,7 +71,8 @@ class GeminiOptimizationClient:
         self.chat_config = {
             "temperature": 0.7,
             "top_p": 0.9,
-            "max_output_tokens": 65535
+            "max_output_tokens": 65535,
+            "tools": tools
         }
         
         self.context = ChatContext()
