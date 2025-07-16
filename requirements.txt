@@ -9,8 +9,9 @@ pandas>=2.0.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 
-# Gemini AI integration via Vertex AI
+# AI & Optimization services via Google Cloud
 google-genai>=0.1.0
+google-cloud-aiplatform>=1.50.0  # For Vizier Bayesian optimization
 
 # Optional but recommended
 python-dotenv>=1.0.0  # For managing environment variables

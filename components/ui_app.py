@@ -5,6 +5,7 @@ Adapted from the work package optimizer UI in local/main.py
 import math
 import random
 import asyncio
+import concurrent.futures
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -20,6 +21,7 @@ from .heuristic_optimizer import (
     perturb_knobs,
     worst_case_knobs
 )
+from .optimization_manager import OptimizationManager, get_available_methods
 from .economics import WellEconomics, EconomicParameters
 from .data_model import generate_texas_wells
 from .monte_carlo import MonteCarloParameters
@@ -90,6 +92,12 @@ def update_metrics_card(idx: int, client: Dict) -> None:
     npv_improvement = m["total_npv"] - initial_npv
     color = "text-green-600" if npv_improvement > 0 else "text-gray-800"
     
+    # Optimization method display
+    method_used = m.get('optimization_method', 'heuristic')
+    method_icon = "🧠" if method_used == "vizier" else "🔍"
+    method_color = "text-blue-600" if method_used == "vizier" else "text-green-600"
+    method_name = "Vizier Bayesian" if method_used == "vizier" else "Heuristic"
+    
     # Build stats display with consistent layout
     monte_carlo_row = ""
     if m.get('run_monte_carlo', False) and 'p10_npv' in m:
@@ -135,8 +143,8 @@ def update_metrics_card(idx: int, client: Dict) -> None:
       <div><div class="text-gray-500 text-sm">Trial #</div>
            <div class="text-2xl font-bold">{idx + 1}</div></div>
            
-      <div><div class="text-gray-500 text-sm">Risk Score</div>
-           <div class="text-2xl font-bold">{m.get('risk_score', 0.5):.0%}</div></div>
+      <div><div class="text-gray-500 text-sm">Optimization Method</div>
+           <div class="text-xl font-bold {method_color}">{method_icon} {method_name}</div></div>
            
       {monte_carlo_row}
     </div>"""
@@ -689,6 +697,60 @@ def main() -> None:
                         color="green"
                     ).classes('px-4')
                 
+                # Optimization Method Selection
+                with ui.column().classes('gap-2 mb-3'):
+                    ui.label("Optimization Method").classes("font-semibold text-sm")
+                    
+                    # Check method availability
+                    method_info = get_available_methods()
+                    vizier_available = method_info["vizier"]["available"]
+                    vizier_setup_ok = method_info["vizier"].get("setup_ok", False) if vizier_available else False
+                    
+                    # Method options
+                    method_options = ["Heuristic (Fast)"]
+                    if vizier_available:
+                        if vizier_setup_ok:
+                            method_options.append("Vizier Bayesian (Smart)")
+                        else:
+                            method_options.append("Vizier (Setup Required)")
+                    
+                    optimization_method = ui.radio(
+                        method_options,
+                        value="Heuristic (Fast)"
+                    ).props('inline').classes('w-full')
+                    
+                    # Status and guidance
+                    method_status = ui.label("").classes("text-xs text-gray-600")
+                    
+                    def update_method_status():
+                        """Update method status based on current selection."""
+                        current_method = optimization_method.value
+                        
+                        if "Heuristic" in current_method:
+                            method_status.set_text("✓ Ready - Fast guided random search")
+                            method_status.classes(replace='text-xs text-green-600')
+                        elif "Vizier" in current_method:
+                            if not vizier_available:
+                                method_status.set_text("⚠ Install: pip install google-cloud-aiplatform")
+                                method_status.classes(replace='text-xs text-orange-600')
+                            elif not vizier_setup_ok:
+                                method_status.set_text("⚠ Configure GCP_PROJECT_ID and authenticate")
+                                method_status.classes(replace='text-xs text-orange-600')
+                            else:
+                                method_status.set_text("✓ Ready - Advanced Bayesian optimization")
+                                method_status.classes(replace='text-xs text-green-600')
+                    
+                    # Initial status
+                    update_method_status()
+                    optimization_method.on('update:model-value', lambda: update_method_status())
+                    
+                    # Add tooltips via help icon
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('help_outline', size='sm').classes('text-gray-400').tooltip(
+                            'Heuristic: Fast exploration, good for quick analysis\n'
+                            'Vizier: Smart Bayesian optimization, better convergence'
+                        )
+                
                 # Monte Carlo settings directly under optimize button
                 with ui.column().classes('gap-2 mb-3'):
                     with ui.row().classes('w-full items-center gap-2'):
@@ -860,149 +922,185 @@ def main() -> None:
                 
                 # Run optimization button
                 async def run_optimization() -> None:
-                    """Run one optimization iteration."""
-                    t_idx = len(client["trials"])
+                    """Run optimization using selected method."""
+                    try:
+                        # Determine optimization method
+                        selected_method = optimization_method.value
+                        method = "vizier" if "Vizier" in selected_method else "heuristic"
+                        
+                        # Check if Vizier is properly configured
+                        if method == "vizier":
+                            method_info = get_available_methods()
+                            if not method_info["vizier"]["available"] or not method_info["vizier"].get("setup_ok", False):
+                                ui.notify("Vizier not properly configured. Falling back to heuristic method.", type='warning')
+                                method = "heuristic"
+                        
+                        # Prepare lease limits for active leases
+                        lease_limits = {}
+                        for lease_id, config in TEXAS_LEASES.items():
+                            if lease_toggles[lease_id].value:
+                                lease_limits[lease_id] = config["wells"]
+                        
+                        # Create optimization manager
+                        optimizer = OptimizationManager(method=method)
+                        
+                        # Set optimization parameters
+                        n_trials = 25 if method == "vizier" else 10  # Fewer trials for UI responsiveness
+                        
+                        # Update button to show method-specific progress
+                        optimize_button.props('loading')
+                        if method == "vizier":
+                            optimize_button.set_text("🧠 Vizier Optimizing...")
+                            optimize_button.classes(add='bg-blue-600')
+                        else:
+                            optimize_button.set_text("🔍 Heuristic Optimizing...")
+                            optimize_button.classes(add='bg-green-600')
+                        
+                        # Store initial parameters for comparison
+                        initial_trial_count = len(client["trials"])
+                        
+                        print(f"\n=== Starting {method} optimization ===")
+                        print(f"Available wells: {len(client['wells'])}")
+                        print(f"Active leases: {list(lease_limits.keys())}")
+                        print(f"Budget: ${budget.value}MM")
+                        print(f"Target trials: {n_trials}")
+                        
+                        # Run optimization in background thread to avoid blocking UI
+                        loop = asyncio.get_event_loop()
+                        
+                        # Create a future for the optimization task
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                optimizer.optimize,
+                                available_wells=client["wells"],
+                                lease_limits=lease_limits,
+                                capex_budget=budget.value * 1_000_000,  # Convert MM to dollars
+                                n_trials=n_trials
+                            )
+                            
+                            # Monitor progress with periodic UI updates
+                            progress_counter = 0
+                            while not future.done():
+                                await asyncio.sleep(2)  # Update every 2 seconds
+                                progress_counter += 1
+                                
+                                # Update progress indication
+                                if method == "vizier":
+                                    dots = "." * (progress_counter % 4)
+                                    optimize_button.set_text(f"🧠 Vizier Optimizing{dots}")
+                                else:
+                                    dots = "." * (progress_counter % 4)
+                                    optimize_button.set_text(f"🔍 Heuristic Optimizing{dots}")
+                                
+                                # Keep connection alive with a progress notification
+                                if progress_counter % 5 == 0:  # Every 10 seconds
+                                    elapsed_time = progress_counter * 2
+                                    ui.notify(f"{method.title()} optimization running... ({elapsed_time}s elapsed)", type='info')
+                            
+                            # Get the results with timeout and proper error handling
+                            try:
+                                best_knobs, best_metrics, history = future.result(timeout=300)  # 5 minute timeout
+                            except concurrent.futures.TimeoutError:
+                                future.cancel()
+                                raise TimeoutError(f"{method.title()} optimization timed out after 5 minutes")
+                            except Exception as e:
+                                raise RuntimeError(f"{method.title()} optimization failed in background thread: {str(e)}")
+                        
+                        # Process results from optimization
+                        actual_method = optimizer.actual_method_used.value if optimizer.actual_method_used else method
+                        
+                        print(f"\n=== Optimization complete ===")
+                        print(f"Method used: {actual_method}")
+                        print(f"Best NPV: ${best_metrics.total_npv/1e6:.1f}MM")
+                        print(f"Trials completed: {len(history.trials)}")
+                        
+                        # Add each trial to UI history
+                        for trial in history.trials:
+                            knobs = trial["knobs"]
+                            metrics = trial["metrics"]
+                            
+                            # Convert OptimizationMetrics to dict format for UI
+                            metrics_dict = {
+                                "total_npv": metrics.total_npv,
+                                "total_capex": metrics.total_capex,
+                                "npv_per_dollar": metrics.npv_per_dollar,
+                                "peak_production": metrics.peak_production,
+                                "wells_selected": sum(knobs.wells_per_lease.values()),
+                                "risk_score": metrics.risk_score,
+                                "run_monte_carlo": monte_carlo_toggle.value,
+                                "optimization_method": actual_method
+                            }
+                            
+                            # Add Monte Carlo results if available
+                            if metrics.p10_npv is not None:
+                                metrics_dict["p10_npv"] = metrics.p10_npv
+                                metrics_dict["p90_npv"] = metrics.p90_npv
+                                metrics_dict["probability_positive"] = metrics.probability_positive
+                                metrics_dict["n_simulations"] = int(n_simulations.value)
+                            
+                            add_trial(knobs, metrics_dict, client)
+                        
+                        # Update client best solution
+                        client["best_score"] = best_metrics.total_npv
+                        client["best_knobs"] = best_knobs
+                        
+                        # Update UI with best solution (only for unlocked parameters)
+                        locked_params = {
+                            'oil_price_forecast': getattr(oil_price, '_locked', False),
+                            'hurdle_rate': getattr(discount_rate, '_locked', False),
+                            'contingency_percent': getattr(contingency, '_locked', False),
+                            'rig_count': getattr(rigs, '_locked', False),
+                            'drilling_mode': getattr(drilling_mode, '_locked', False),
+                        }
+                        
+                        well_locked = {}
+                        for lease_id in TEXAS_LEASES:
+                            well_locked[lease_id] = getattr(well_sliders[lease_id], '_locked', False)
+                        
+                        # Update UI controls with optimized values
+                        if not locked_params.get('oil_price_forecast', False):
+                            oil_price.value = best_knobs.oil_price_forecast
+                            oil_price_label.set_text(f'${best_knobs.oil_price_forecast}/bbl')
+                        if not locked_params.get('hurdle_rate', False):
+                            discount_rate.value = int(best_knobs.hurdle_rate * 100)
+                            discount_rate_label.set_text(f'{int(best_knobs.hurdle_rate * 100)}%')
+                        if not locked_params.get('contingency_percent', False):
+                            contingency.value = int(best_knobs.contingency_percent * 100)
+                            contingency_label.set_text(f'{int(best_knobs.contingency_percent * 100)}%')
+                        if not locked_params.get('rig_count', False):
+                            rigs.value = best_knobs.rig_count
+                            rigs_label.set_text(f'{best_knobs.rig_count} rig{"s" if best_knobs.rig_count != 1 else ""}')
+                        if not locked_params.get('drilling_mode', False):
+                            drilling_mode.value = best_knobs.drilling_mode
+                        
+                        # Update well sliders for unlocked wells
+                        for lease_id in best_knobs.wells_per_lease:
+                            if lease_id in well_sliders and not well_locked.get(lease_id, False):
+                                well_count = best_knobs.wells_per_lease[lease_id]
+                                well_sliders[lease_id].value = well_count
+                                well_labels[lease_id].set_text(f'{well_count} well{"s" if well_count != 1 else ""}')
+                        
+                        # Show success notification
+                        trials_completed = len(client["trials"]) - initial_trial_count
+                        ui.notify(
+                            f"{actual_method.title()} optimization complete! "
+                            f"{trials_completed} trials, Best NPV: ${best_metrics.total_npv/1e6:.1f}MM",
+                            type='positive'
+                        )
+                        
+                        # Show fallback notification if applicable
+                        if optimizer.fallback_reason:
+                            ui.notify(f"Note: Fell back to heuristic method - {optimizer.fallback_reason}", type='info')
+                        
+                    except Exception as e:
+                        print(f"Optimization failed: {e}")
+                        ui.notify(f"Optimization failed: {str(e)}", type='negative')
                     
-                    # Collect lock states
-                    locked_params = {
-                        'oil_price_forecast': getattr(oil_price, '_locked', False),
-                        'hurdle_rate': getattr(discount_rate, '_locked', False),
-                        'contingency_percent': getattr(contingency, '_locked', False),
-                        'rig_count': getattr(rigs, '_locked', False),
-                        'drilling_mode': getattr(drilling_mode, '_locked', False),
-                        'permit_delay': getattr(permit_delay, '_locked', False)
-                    }
-                    
-                    # Collect individual well locks
-                    well_locked = {}
-                    for lease_id in TEXAS_LEASES:
-                        well_locked[lease_id] = getattr(well_sliders[lease_id], '_locked', False)
-                    
-                    # Build knobs from UI values
-                    wells_per_lease = {}
-                    for lease_id in TEXAS_LEASES:
-                        if lease_toggles[lease_id].value:
-                            wells_per_lease[lease_id] = well_sliders[lease_id].value
-                    
-                    if t_idx == 0 or client["best_knobs"] is None:
-                        # Start with worst case
-                        knobs = worst_case_knobs()
-                        # Use UI values for unlocked wells on first trial
-                        for lease_id in wells_per_lease:
-                            if not well_locked.get(lease_id, False):
-                                knobs.wells_per_lease[lease_id] = wells_per_lease[lease_id]
-                    else:
-                        # Perturb from best
-                        # Increase minimum scale to 0.3 for more exploration
-                        scale = max(0.3, 1.0 - (t_idx / IMPROVE_TRIALS))
-                        knobs = perturb_knobs(client["best_knobs"], scale, locked_params, well_locked)
-                    
-                    # Override individually locked wells with UI values
-                    for lease_id, is_locked in well_locked.items():
-                        if is_locked and lease_id in wells_per_lease:
-                            knobs.wells_per_lease[lease_id] = wells_per_lease[lease_id]
-                    
-                    # Clean up knobs to only include valid Texas leases
-                    # Remove any old lease IDs that might have been created by worst_case_knobs
-                    valid_leases = set(TEXAS_LEASES.keys())
-                    knobs.wells_per_lease = {
-                        lease: count 
-                        for lease, count in knobs.wells_per_lease.items() 
-                        if lease in valid_leases
-                    }
-                    
-                    # Ensure all active leases have well counts
-                    for lease_id in TEXAS_LEASES:
-                        if lease_toggles[lease_id].value and lease_id not in knobs.wells_per_lease:
-                            knobs.wells_per_lease[lease_id] = 0
-                    
-                    # Update knobs from UI for locked parameters only
-                    if locked_params.get('oil_price_forecast', False):
-                        knobs.oil_price_forecast = oil_price.value
-                    if locked_params.get('hurdle_rate', False):
-                        knobs.hurdle_rate = discount_rate.value / 100.0
-                    if locked_params.get('contingency_percent', False):
-                        knobs.contingency_percent = contingency.value / 100.0
-                    if locked_params.get('rig_count', False):
-                        knobs.rig_count = rigs.value
-                    if locked_params.get('drilling_mode', False):
-                        knobs.drilling_mode = drilling_mode.value
-                    
-                    # Debug knobs before evaluation
-                    total_wells = sum(knobs.wells_per_lease.values())
-                    print(f"\nTrial {t_idx} - Before evaluation:")
-                    print(f"  Total wells to drill: {total_wells}")
-                    print(f"  Wells per lease: {knobs.wells_per_lease}")
-                    print(f"  Oil price: ${knobs.oil_price_forecast}/bbl")
-                    print(f"  Discount rate: {knobs.hurdle_rate*100:.1f}%")
-                    
-                    # Evaluate scenario
-                    # Run synchronously to avoid pickling issues with OR-Tools
-                    metrics = evaluate_scenario(
-                        knobs,
-                        client["wells"],
-                        budget.value * 1_000_000,  # Convert MM to dollars
-                        run_monte_carlo=monte_carlo_toggle.value,
-                        n_simulations=int(n_simulations.value) if monte_carlo_toggle.value else 100
-                    )
-                    
-                    # Convert to dict format
-                    metrics_dict = {
-                        "total_npv": metrics.total_npv,
-                        "total_capex": metrics.total_capex,
-                        "npv_per_dollar": metrics.npv_per_dollar,
-                        "peak_production": metrics.peak_production,
-                        "wells_selected": sum(knobs.wells_per_lease.values()),  # Total wells from UI
-                        "risk_score": metrics.risk_score,
-                        "run_monte_carlo": monte_carlo_toggle.value
-                    }
-                    
-                    # Add Monte Carlo results if available
-                    if metrics.p10_npv is not None:
-                        metrics_dict["p10_npv"] = metrics.p10_npv
-                        metrics_dict["p90_npv"] = metrics.p90_npv
-                        metrics_dict["probability_positive"] = metrics.probability_positive
-                        metrics_dict["n_simulations"] = int(n_simulations.value)
-                    
-                    # Debug output after evaluation
-                    print(f"Trial {t_idx} - After evaluation:")
-                    print(f"  NPV: ${metrics.total_npv/1e6:.1f}MM")
-                    print(f"  CAPEX: ${metrics.total_capex/1e6:.1f}MM")
-                    print(f"  Wells selected: {sum(knobs.wells_per_lease.values())}")
-                    print(f"  Wells actually scheduled: {metrics.wells_drilled}")
-                    print(f"  Avg production per well: {metrics.peak_production:.0f} boe/d")
-                    
-                    # Update best solution
-                    score = metrics.total_npv
-                    if score > client["best_score"]:
-                        client["best_score"] = score
-                        client["best_knobs"] = knobs
-                    
-                    # Add trial and update UI
-                    add_trial(knobs, metrics_dict, client)
-                    
-                    # Update UI sliders to show optimized values (only for unlocked parameters)
-                    if not locked_params.get('oil_price_forecast', False):
-                        oil_price.value = knobs.oil_price_forecast
-                        oil_price_label.set_text(f'${knobs.oil_price_forecast}/bbl')
-                    if not locked_params.get('hurdle_rate', False):
-                        discount_rate.value = int(knobs.hurdle_rate * 100)
-                        discount_rate_label.set_text(f'{int(knobs.hurdle_rate * 100)}%')
-                    if not locked_params.get('contingency_percent', False):
-                        contingency.value = int(knobs.contingency_percent * 100)
-                        contingency_label.set_text(f'{int(knobs.contingency_percent * 100)}%')
-                    if not locked_params.get('rig_count', False):
-                        rigs.value = knobs.rig_count
-                        rigs_label.set_text(f'{knobs.rig_count} rig{"s" if knobs.rig_count != 1 else ""}')
-                    if not locked_params.get('drilling_mode', False):
-                        drilling_mode.value = knobs.drilling_mode
-                    
-                    # Update well sliders for unlocked wells
-                    for lease_id in knobs.wells_per_lease:
-                        if lease_id in well_sliders and not well_locked.get(lease_id, False):
-                            well_count = knobs.wells_per_lease[lease_id]
-                            well_sliders[lease_id].value = well_count
-                            well_labels[lease_id].set_text(f'{well_count} well{"s" if well_count != 1 else ""}')
+                    finally:
+                        # Reset button state
+                        optimize_button.props(remove='loading')
+                        optimize_button.classes(remove='bg-blue-600 bg-green-600')
+                        optimize_button.set_text("Optimize Development")
                 
                 # Connect button to function
                 optimize_button.on_click(run_optimization)
