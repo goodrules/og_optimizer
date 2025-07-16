@@ -413,7 +413,8 @@ class HeuristicOptimizer:
         lease_limits: Dict[str, int],
         capex_budget: float,
         n_trials: int = 20,
-        improvement_threshold: float = 0.95
+        improvement_threshold: float = 0.95,
+        locked_parameters: Optional[Dict[str, Any]] = None
     ):
         self.available_wells = available_wells
         self.lease_limits = lease_limits
@@ -421,9 +422,48 @@ class HeuristicOptimizer:
         self.n_trials = n_trials
         self.improvement_threshold = improvement_threshold
         
+        # Process locked parameters
+        self.locked_parameters = locked_parameters or {}
+        self.locked_params, self.well_locked = self._process_locked_parameters()
+        
         self.best_knobs = None
         self.best_score = float('-inf')
         self.history = TrialHistory()
+    
+    def _process_locked_parameters(self) -> Tuple[Dict[str, bool], Dict[str, bool]]:
+        """
+        Convert locked_parameters from UI format to perturb_knobs format.
+        
+        Returns:
+            Tuple of (locked_params, well_locked) for use with perturb_knobs
+        """
+        locked_params = {}
+        well_locked = {}
+        
+        # Process parameter locks
+        for param_name, param_value in self.locked_parameters.items():
+            if param_name.startswith('wells_'):
+                # Handle well locks: 'wells_MIDLAND_A' -> well_locked['MIDLAND_A'] = True
+                lease_id = param_name.replace('wells_', '')
+                well_locked[lease_id] = True
+            else:
+                # Handle parameter locks: 'oil_price_forecast' -> locked_params['oil_price_forecast'] = True
+                locked_params[param_name] = True
+        
+        return locked_params, well_locked
+    
+    def _apply_locked_parameters(self, knobs: OptimizationKnobs) -> None:
+        """Apply locked parameter values to knobs."""
+        for param_name, param_value in self.locked_parameters.items():
+            if param_name.startswith('wells_'):
+                # Handle well locks
+                lease_id = param_name.replace('wells_', '')
+                if lease_id in knobs.wells_per_lease:
+                    knobs.wells_per_lease[lease_id] = param_value
+            else:
+                # Handle parameter locks
+                if hasattr(knobs, param_name):
+                    setattr(knobs, param_name, param_value)
     
     def optimize(self) -> Tuple[OptimizationKnobs, OptimizationMetrics, TrialHistory]:
         """Run heuristic optimization."""
@@ -433,6 +473,9 @@ class HeuristicOptimizer:
         current_knobs.wells_per_lease = {
             lease: min(3, limit) for lease, limit in self.lease_limits.items()
         }
+        
+        # Apply locked parameter values to initial knobs
+        self._apply_locked_parameters(current_knobs)
         
         # Evaluate initial scenario
         metrics = evaluate_scenario(current_knobs, self.available_wells, self.capex_budget)
@@ -447,8 +490,8 @@ class HeuristicOptimizer:
             # Decay scale factor over time (more exploration early, refinement later)
             scale = max(0.2, 1.0 - (trial / self.n_trials) * 0.7)
             
-            # Perturb from best known solution
-            trial_knobs = perturb_knobs(self.best_knobs, scale)
+            # Perturb from best known solution (respecting locked parameters)
+            trial_knobs = perturb_knobs(self.best_knobs, scale, self.locked_params, self.well_locked)
             
             # Ensure lease limits are respected
             for lease in trial_knobs.wells_per_lease:

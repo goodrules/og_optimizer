@@ -941,6 +941,35 @@ def main() -> None:
                             if lease_toggles[lease_id].value:
                                 lease_limits[lease_id] = config["wells"]
                         
+                        # Extract locked parameters from UI
+                        locked_parameters = {}
+                        
+                        # Check economic parameter locks
+                        if getattr(oil_price, '_locked', False):
+                            locked_parameters['oil_price_forecast'] = float(oil_price.value)
+                        if getattr(discount_rate, '_locked', False):
+                            locked_parameters['hurdle_rate'] = float(discount_rate.value) / 100.0  # Convert % to decimal
+                        if getattr(contingency, '_locked', False):
+                            locked_parameters['contingency_percent'] = float(contingency.value) / 100.0  # Convert % to decimal
+                        
+                        # Check drilling parameter locks
+                        if getattr(rigs, '_locked', False):
+                            locked_parameters['rig_count'] = int(rigs.value)
+                        if getattr(drilling_mode, '_locked', False):
+                            locked_parameters['drilling_mode'] = str(drilling_mode.value)
+                        if getattr(permit_delay, '_locked', False):
+                            # permit_delay doesn't directly map to optimization parameters, but we'll store it for completeness
+                            pass
+                        
+                        # Check well parameter locks  
+                        for lease_id in TEXAS_LEASES:
+                            if lease_id in well_sliders and getattr(well_sliders[lease_id], '_locked', False):
+                                locked_parameters[f'wells_{lease_id}'] = int(well_sliders[lease_id].value)
+                        
+                        # Log locked parameters for debugging
+                        if locked_parameters:
+                            print(f"Locked parameters: {locked_parameters}")
+                        
                         # Create optimization manager
                         optimizer = OptimizationManager(method=method)
                         
@@ -975,7 +1004,8 @@ def main() -> None:
                                 available_wells=client["wells"],
                                 lease_limits=lease_limits,
                                 capex_budget=budget.value * 1_000_000,  # Convert MM to dollars
-                                n_trials=n_trials
+                                n_trials=n_trials,
+                                locked_parameters=locked_parameters
                             )
                             
                             # Monitor progress with periodic UI updates

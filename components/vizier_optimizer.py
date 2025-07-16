@@ -86,6 +86,7 @@ class VizierOptimizer:
         capex_budget: float,
         n_trials: int = 50,
         improvement_threshold: float = 0.95,
+        locked_parameters: Optional[Dict[str, Any]] = None,
         project_id: Optional[str] = None,
         region: Optional[str] = None
     ):
@@ -100,6 +101,7 @@ class VizierOptimizer:
         self.capex_budget = capex_budget
         self.n_trials = n_trials
         self.improvement_threshold = improvement_threshold
+        self.locked_parameters = locked_parameters or {}
         
         # GCP configuration using existing pattern
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID")
@@ -136,22 +138,33 @@ class VizierOptimizer:
         
         for lease, max_wells in lease_params.items():
             if lease in self.lease_limits:
-                actual_limit = min(max_wells, self.lease_limits[lease])
-                root.add_int_param(f"wells_{lease}", 0, actual_limit)
+                # Only add parameter to search space if not locked
+                wells_param = f"wells_{lease}"
+                if wells_param not in self.locked_parameters:
+                    actual_limit = min(max_wells, self.lease_limits[lease])
+                    root.add_int_param(wells_param, 0, actual_limit)
         
-        # Rig count
-        root.add_int_param("rig_count", 1, 5)
+        # Rig count (only if not locked)
+        if "rig_count" not in self.locked_parameters:
+            root.add_int_param("rig_count", 1, 5)
         
-        # Categorical parameters
-        root.add_categorical_param("drilling_mode", ["continuous", "batch"])
-        root.add_categorical_param("permit_strategy", ["aggressive", "balanced", "conservative"])
-        root.add_categorical_param("development_pace", ["slow", "moderate", "fast"])
+        # Categorical parameters (only if not locked)
+        if "drilling_mode" not in self.locked_parameters:
+            root.add_categorical_param("drilling_mode", ["continuous", "batch"])
+        if "permit_strategy" not in self.locked_parameters:
+            root.add_categorical_param("permit_strategy", ["aggressive", "balanced", "conservative"])
+        if "development_pace" not in self.locked_parameters:
+            root.add_categorical_param("development_pace", ["slow", "moderate", "fast"])
         
-        # Continuous parameters
-        root.add_float_param("contingency_percent", 0.05, 0.30, scale_type=pyvizier.ScaleType.LINEAR)
-        root.add_float_param("hurdle_rate", 0.10, 0.30, scale_type=pyvizier.ScaleType.LINEAR)
-        root.add_float_param("oil_price_forecast", 30.0, 120.0, scale_type=pyvizier.ScaleType.LINEAR)
-        root.add_float_param("price_volatility", 0.1, 0.5, scale_type=pyvizier.ScaleType.LINEAR)
+        # Continuous parameters (only if not locked)
+        if "contingency_percent" not in self.locked_parameters:
+            root.add_float_param("contingency_percent", 0.05, 0.30, scale_type=pyvizier.ScaleType.LINEAR)
+        if "hurdle_rate" not in self.locked_parameters:
+            root.add_float_param("hurdle_rate", 0.10, 0.30, scale_type=pyvizier.ScaleType.LINEAR)
+        if "oil_price_forecast" not in self.locked_parameters:
+            root.add_float_param("oil_price_forecast", 30.0, 120.0, scale_type=pyvizier.ScaleType.LINEAR)
+        if "price_volatility" not in self.locked_parameters:
+            root.add_float_param("price_volatility", 0.1, 0.5, scale_type=pyvizier.ScaleType.LINEAR)
         
         # Objective: Maximize NPV
         problem.metric_information.append(
@@ -166,21 +179,24 @@ class VizierOptimizer:
         wells_per_lease = {}
         for lease in ["MIDLAND_A", "MARTIN_B", "REEVES_C", "LOVING_D", "HOWARD_E"]:
             param_name = f"wells_{lease}"
-            if param_name in parameters:
+            if param_name in self.locked_parameters:
+                # Use locked value
+                wells_per_lease[lease] = self.locked_parameters[param_name]
+            elif param_name in parameters:
                 wells_per_lease[lease] = int(parameters[param_name].value)
             elif lease in self.lease_limits:
                 # Default to minimum if parameter not found
                 wells_per_lease[lease] = 0
         
-        # Extract other parameters
-        rig_count = int(parameters["rig_count"].value)
-        drilling_mode = str(parameters["drilling_mode"].value)
-        permit_strategy = str(parameters["permit_strategy"].value)
-        development_pace = str(parameters["development_pace"].value)
-        contingency_percent = float(parameters["contingency_percent"].value)
-        hurdle_rate = float(parameters["hurdle_rate"].value)
-        oil_price_forecast = float(parameters["oil_price_forecast"].value)
-        price_volatility = float(parameters["price_volatility"].value)
+        # Extract other parameters (use locked values if available)
+        rig_count = self.locked_parameters.get("rig_count", int(parameters["rig_count"].value) if "rig_count" in parameters else 2)
+        drilling_mode = self.locked_parameters.get("drilling_mode", str(parameters["drilling_mode"].value) if "drilling_mode" in parameters else "continuous")
+        permit_strategy = self.locked_parameters.get("permit_strategy", str(parameters["permit_strategy"].value) if "permit_strategy" in parameters else "balanced")
+        development_pace = self.locked_parameters.get("development_pace", str(parameters["development_pace"].value) if "development_pace" in parameters else "moderate")
+        contingency_percent = self.locked_parameters.get("contingency_percent", float(parameters["contingency_percent"].value) if "contingency_percent" in parameters else 0.15)
+        hurdle_rate = self.locked_parameters.get("hurdle_rate", float(parameters["hurdle_rate"].value) if "hurdle_rate" in parameters else 0.15)
+        oil_price_forecast = self.locked_parameters.get("oil_price_forecast", float(parameters["oil_price_forecast"].value) if "oil_price_forecast" in parameters else 80.0)
+        price_volatility = self.locked_parameters.get("price_volatility", float(parameters["price_volatility"].value) if "price_volatility" in parameters else 0.25)
         
         return OptimizationKnobs(
             wells_per_lease=wells_per_lease,
