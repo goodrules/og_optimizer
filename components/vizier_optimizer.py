@@ -87,6 +87,8 @@ class VizierOptimizer:
         n_trials: int = 50,
         improvement_threshold: float = 0.95,
         locked_parameters: Optional[Dict[str, Any]] = None,
+        run_monte_carlo: bool = False,
+        mc_simulations: int = 100,
         project_id: Optional[str] = None,
         region: Optional[str] = None
     ):
@@ -102,6 +104,8 @@ class VizierOptimizer:
         self.n_trials = n_trials
         self.improvement_threshold = improvement_threshold
         self.locked_parameters = locked_parameters or {}
+        self.run_monte_carlo = run_monte_carlo
+        self.mc_simulations = mc_simulations
         
         # GCP configuration using existing pattern
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID")
@@ -274,7 +278,8 @@ class VizierOptimizer:
                             knobs, 
                             self.available_wells, 
                             self.capex_budget,
-                            run_monte_carlo=False  # Keep evaluation fast for Vizier
+                            run_monte_carlo=self.run_monte_carlo,
+                            n_simulations=self.mc_simulations
                         )
                         
                         # Report result back to Vizier
