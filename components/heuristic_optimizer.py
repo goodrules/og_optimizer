@@ -414,13 +414,17 @@ class HeuristicOptimizer:
         capex_budget: float,
         n_trials: int = 20,
         improvement_threshold: float = 0.95,
-        locked_parameters: Optional[Dict[str, Any]] = None
+        locked_parameters: Optional[Dict[str, Any]] = None,
+        run_monte_carlo: bool = False,
+        mc_simulations: int = 100
     ):
         self.available_wells = available_wells
         self.lease_limits = lease_limits
         self.capex_budget = capex_budget
         self.n_trials = n_trials
         self.improvement_threshold = improvement_threshold
+        self.run_monte_carlo = run_monte_carlo
+        self.mc_simulations = mc_simulations
         
         # Process locked parameters
         self.locked_parameters = locked_parameters or {}
@@ -478,7 +482,7 @@ class HeuristicOptimizer:
         self._apply_locked_parameters(current_knobs)
         
         # Evaluate initial scenario
-        metrics = evaluate_scenario(current_knobs, self.available_wells, self.capex_budget)
+        metrics = evaluate_scenario(current_knobs, self.available_wells, self.capex_budget, self.run_monte_carlo, self.mc_simulations)
         self.history.add_trial(current_knobs, metrics)
         
         if metrics.total_npv > self.best_score:
@@ -502,7 +506,7 @@ class HeuristicOptimizer:
                     )
             
             # Evaluate
-            metrics = evaluate_scenario(trial_knobs, self.available_wells, self.capex_budget)
+            metrics = evaluate_scenario(trial_knobs, self.available_wells, self.capex_budget, self.run_monte_carlo, self.mc_simulations)
             self.history.add_trial(trial_knobs, metrics)
             
             # Update best if improved

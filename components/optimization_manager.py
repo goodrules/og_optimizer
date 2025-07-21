@@ -72,6 +72,8 @@ class OptimizationManager:
         capex_budget: Optional[float] = None,
         n_trials: Optional[int] = None,
         locked_parameters: Optional[Dict[str, Any]] = None,
+        run_monte_carlo: bool = False,
+        mc_simulations: int = 100,
         **kwargs
     ) -> Tuple[OptimizationKnobs, OptimizationMetrics, Union[TrialHistory, VizierTrialHistory]]:
         """
@@ -83,6 +85,8 @@ class OptimizationManager:
             capex_budget: Capital budget (uses constructor value if None)
             n_trials: Number of trials (method-specific defaults if None)
             locked_parameters: Dict of parameter names to fixed values that should not be optimized
+            run_monte_carlo: Whether to run Monte Carlo simulation for uncertainty analysis
+            mc_simulations: Number of Monte Carlo simulations to run (if enabled)
             **kwargs: Additional method-specific arguments
             
         Returns:
@@ -103,7 +107,7 @@ class OptimizationManager:
         # Try requested method first
         if self.method == OptimizationMethod.VIZIER:
             try:
-                return self._optimize_with_vizier(wells, limits, budget, n_trials, locked_parameters, **kwargs)
+                return self._optimize_with_vizier(wells, limits, budget, n_trials, locked_parameters, run_monte_carlo, mc_simulations, **kwargs)
             except Exception as e:
                 print(f"Vizier optimization failed: {e}")
                 print("Falling back to heuristic optimization...")
@@ -113,7 +117,7 @@ class OptimizationManager:
         
         # Heuristic optimization (default or fallback)
         self.actual_method_used = OptimizationMethod.HEURISTIC
-        return self._optimize_with_heuristic(wells, limits, budget, n_trials, locked_parameters, **kwargs)
+        return self._optimize_with_heuristic(wells, limits, budget, n_trials, locked_parameters, run_monte_carlo, mc_simulations, **kwargs)
     
     def _optimize_with_vizier(
         self, 
@@ -122,6 +126,8 @@ class OptimizationManager:
         budget: float,
         n_trials: int,
         locked_parameters: Optional[Dict[str, Any]] = None,
+        run_monte_carlo: bool = False,
+        mc_simulations: int = 100,
         **kwargs
     ) -> Tuple[OptimizationKnobs, OptimizationMetrics, VizierTrialHistory]:
         """Run Vizier Bayesian optimization."""
@@ -131,6 +137,8 @@ class OptimizationManager:
             capex_budget=budget,
             n_trials=n_trials,
             locked_parameters=locked_parameters,
+            run_monte_carlo=run_monte_carlo,
+            mc_simulations=mc_simulations,
             **kwargs
         )
         
@@ -145,6 +153,8 @@ class OptimizationManager:
         budget: float,
         n_trials: int,
         locked_parameters: Optional[Dict[str, Any]] = None,
+        run_monte_carlo: bool = False,
+        mc_simulations: int = 100,
         **kwargs
     ) -> Tuple[OptimizationKnobs, OptimizationMetrics, TrialHistory]:
         """Run heuristic guided random search."""
@@ -154,6 +164,8 @@ class OptimizationManager:
             capex_budget=budget,
             n_trials=n_trials,
             locked_parameters=locked_parameters,
+            run_monte_carlo=run_monte_carlo,
+            mc_simulations=mc_simulations,
             **kwargs
         )
         

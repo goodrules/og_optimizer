@@ -56,6 +56,128 @@ def create_well_portfolio() -> List[WellEconomics]:
     return wells
 
 
+def get_best_trial_idx(client: Dict) -> int:
+    """Find trial with highest NPV."""
+    if not client["trials"]:
+        return -1
+    best_idx = 0
+    best_npv = client["trials"][0]["metrics"]["total_npv"]
+    for i, trial in enumerate(client["trials"]):
+        if trial["metrics"]["total_npv"] > best_npv:
+            best_npv = trial["metrics"]["total_npv"]
+            best_idx = i
+    return best_idx
+
+
+def get_selected_trial_idx(client: Dict) -> int:
+    """Get currently selected trial index."""
+    if not client["trials"]:
+        return -1
+    
+    # Use selected trial if set and valid
+    selected_idx = client.get("selected_trial_idx", -1)
+    if 0 <= selected_idx < len(client["trials"]):
+        return selected_idx
+    
+    # Default to latest trial
+    return len(client["trials"]) - 1
+
+
+def update_trial_display(client: Dict) -> None:
+    """Update all visualizations for currently selected trial."""
+    idx = get_selected_trial_idx(client)
+    if idx >= 0:
+        update_metrics_card(idx, client)
+        update_drilling_timeline(idx, client)
+        update_production_forecast(idx, client)
+        update_economics_chart(idx, client)
+    
+    # Always update optimization history and trajectory (show all trials)
+    update_optimization_history(client)
+    update_trajectory_chart(client)
+    
+    # Update trial selector UI
+    update_trial_selector(client)
+
+
+def update_trial_selector(client: Dict) -> None:
+    """Update trial selector dropdown and navigation buttons."""
+    if "trial_selector" not in client:
+        return
+    
+    trials = client["trials"]
+    if not trials:
+        client["trial_selector"].set_options([])
+        client["trial_selector"].set_enabled(False)
+        if "best_trial_btn" in client:
+            client["best_trial_btn"].set_enabled(False)
+        if "latest_trial_btn" in client:
+            client["latest_trial_btn"].set_enabled(False)
+        return
+    
+    # Build selector options
+    best_idx = get_best_trial_idx(client)
+    latest_idx = len(trials) - 1
+    
+    options = {}
+    for i, trial in enumerate(trials):
+        npv = trial["metrics"]["total_npv"] / 1e6
+        
+        # Add status indicators
+        indicators = []
+        if i == best_idx:
+            indicators.append("⭐")
+        if i == latest_idx:
+            indicators.append("🆕")
+        
+        indicator_str = " " + "".join(indicators) if indicators else ""
+        label = f"Trial {i+1} - ${npv:.1f}MM{indicator_str}"
+        
+        options[i] = label
+    
+    client["trial_selector"].set_options(options)
+    client["trial_selector"].set_enabled(True)
+    
+    # Set current selection
+    selected_idx = get_selected_trial_idx(client)
+    client["trial_selector"].set_value(selected_idx)
+    
+    # Update button states
+    if "best_trial_btn" in client:
+        best_npv = trials[best_idx]["metrics"]["total_npv"] / 1e6
+        client["best_trial_btn"].set_text(f"⭐ Best (${best_npv:.1f}MM)")
+        client["best_trial_btn"].set_enabled(True)
+    
+    if "latest_trial_btn" in client:
+        client["latest_trial_btn"].set_enabled(True)
+
+
+def select_trial(client: Dict, trial_idx: int) -> None:
+    """Select a specific trial for display."""
+    if not client["trials"] or trial_idx < 0 or trial_idx >= len(client["trials"]):
+        return
+    
+    client["selected_trial_idx"] = trial_idx
+    client["auto_follow_latest"] = False  # Disable auto-follow when user selects
+    update_trial_display(client)
+
+
+def select_best_trial(client: Dict) -> None:
+    """Select the trial with highest NPV."""
+    best_idx = get_best_trial_idx(client)
+    if best_idx >= 0:
+        select_trial(client, best_idx)
+
+
+def select_latest_trial(client: Dict) -> None:
+    """Select the latest trial and resume auto-follow."""
+    if client["trials"]:
+        latest_idx = len(client["trials"]) - 1
+        client["selected_trial_idx"] = latest_idx
+        client["auto_follow_latest"] = True  # Re-enable auto-follow
+        update_trial_display(client)
+
+
 def add_trial(knobs: OptimizationKnobs, metrics: Dict, client: Dict) -> None:
     """Add optimization trial to history and update UI."""
     trial = {
@@ -65,14 +187,12 @@ def add_trial(knobs: OptimizationKnobs, metrics: Dict, client: Dict) -> None:
     }
     client["trials"].append(trial)
     
+    # Auto-follow latest trial if enabled
+    if client.get("auto_follow_latest", True):
+        client["selected_trial_idx"] = len(client["trials"]) - 1
+    
     # Update all visualizations
-    idx = len(client["trials"]) - 1
-    update_metrics_card(idx, client)
-    update_drilling_timeline(idx, client)
-    update_production_forecast(idx, client)
-    update_economics_chart(idx, client)
-    update_optimization_history(client)
-    update_trajectory_chart(client)
+    update_trial_display(client)
 
 
 def update_metrics_card(idx: int, client: Dict) -> None:
@@ -98,6 +218,23 @@ def update_metrics_card(idx: int, client: Dict) -> None:
     method_color = "text-blue-600" if method_used == "vizier" else "text-green-600"
     method_name = "Vizier Bayesian" if method_used == "vizier" else "Heuristic"
     
+    # Trial status indicators
+    best_idx = get_best_trial_idx(client)
+    latest_idx = len(client["trials"]) - 1
+    selected_idx = get_selected_trial_idx(client)
+    
+    trial_status = ""
+    trial_badges = []
+    if idx == best_idx:
+        trial_badges.append('<span class="inline-block bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">⭐ BEST</span>')
+    if idx == latest_idx:
+        trial_badges.append('<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">🆕 LATEST</span>')
+    if idx == selected_idx and len(client["trials"]) > 1:
+        trial_badges.append('<span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">👁️ VIEWING</span>')
+    
+    if trial_badges:
+        trial_status = f'<div class="mb-2 flex gap-1">{"".join(trial_badges)}</div>'
+    
     # Build stats display with consistent layout
     monte_carlo_row = ""
     if m.get('run_monte_carlo', False) and 'p10_npv' in m:
@@ -119,6 +256,7 @@ def update_metrics_card(idx: int, client: Dict) -> None:
         """
     
     client["stats_html"].content = f"""
+    {trial_status}
     <div class="grid grid-cols-4 gap-x-4 gap-y-2">
       <!-- Row 1 -->
       <div><div class="text-gray-500 text-sm">Total NPV</div>
@@ -145,6 +283,11 @@ def update_metrics_card(idx: int, client: Dict) -> None:
            
       <div><div class="text-gray-500 text-sm">Optimization Method</div>
            <div class="text-xl font-bold {method_color}">{method_icon} {method_name}</div></div>
+           
+      <!-- Risk Score (always display) -->
+      <div><div class="text-gray-500 text-sm">Risk Score</div>
+           <div class="text-xl font-bold text-orange-600">{m.get('risk_score', 0.5):.1%}</div>
+           <div class="text-xs text-gray-600">{'MC Risk' if m.get('run_monte_carlo', False) else 'Basic Risk'}</div></div>
            
       {monte_carlo_row}
     </div>"""
@@ -519,6 +662,10 @@ def main() -> None:
         client["best_score"] = float("-inf")
     if "wells" not in client:
         client["wells"] = create_well_portfolio()
+    if "selected_trial_idx" not in client:
+        client["selected_trial_idx"] = -1
+    if "auto_follow_latest" not in client:
+        client["auto_follow_latest"] = True
     
     # Header
     with ui.header().classes(replace='row items-center h-16 bg-gray-800'):
@@ -706,17 +853,17 @@ def main() -> None:
                     vizier_available = method_info["vizier"]["available"]
                     vizier_setup_ok = method_info["vizier"].get("setup_ok", False) if vizier_available else False
                     
-                    # Method options
-                    method_options = ["Heuristic (Fast)"]
+                    # Method options with trial counts
+                    method_options = ["Heuristic (Fast) - 10 trials"]
                     if vizier_available:
                         if vizier_setup_ok:
-                            method_options.append("Vizier Bayesian (Smart)")
+                            method_options.append("Vizier Bayesian (Smart) - 25 trials")
                         else:
-                            method_options.append("Vizier (Setup Required)")
+                            method_options.append("Vizier (Setup Required) - 25 trials")
                     
                     optimization_method = ui.radio(
                         method_options,
-                        value="Heuristic (Fast)"
+                        value="Heuristic (Fast) - 10 trials"
                     ).props('inline').classes('w-full')
                     
                     # Status and guidance
@@ -727,7 +874,7 @@ def main() -> None:
                         current_method = optimization_method.value
                         
                         if "Heuristic" in current_method:
-                            method_status.set_text("✓ Ready - Fast guided random search")
+                            method_status.set_text("✓ Ready - Fast guided random search (~3-5 seconds)")
                             method_status.classes(replace='text-xs text-green-600')
                         elif "Vizier" in current_method:
                             if not vizier_available:
@@ -737,7 +884,7 @@ def main() -> None:
                                 method_status.set_text("⚠ Configure GCP_PROJECT_ID and authenticate")
                                 method_status.classes(replace='text-xs text-orange-600')
                             else:
-                                method_status.set_text("✓ Ready - Advanced Bayesian optimization")
+                                method_status.set_text("✓ Ready - Advanced Bayesian optimization (~2 minutes)")
                                 method_status.classes(replace='text-xs text-green-600')
                     
                     # Initial status
@@ -976,13 +1123,28 @@ def main() -> None:
                         # Set optimization parameters
                         n_trials = 25 if method == "vizier" else 10  # Fewer trials for UI responsiveness
                         
+                        # Performance warning for Monte Carlo + Vizier combination
+                        if monte_carlo_toggle.value and method == "vizier":
+                            ui.notify(
+                                f"⚠️ Monte Carlo + Vizier: Expected runtime ~{n_trials * 5} seconds", 
+                                type="warning", 
+                                timeout=5000
+                            )
+                        elif monte_carlo_toggle.value:
+                            ui.notify(
+                                f"📊 Monte Carlo enabled: +2-5 seconds per trial", 
+                                type="info", 
+                                timeout=3000
+                            )
+                        
                         # Update button to show method-specific progress
                         optimize_button.props('loading')
+                        mc_indicator = " + MC" if monte_carlo_toggle.value else ""
                         if method == "vizier":
-                            optimize_button.set_text("🧠 Vizier Optimizing...")
+                            optimize_button.set_text(f"🧠 Vizier Optimizing{mc_indicator}...")
                             optimize_button.classes(add='bg-blue-600')
                         else:
-                            optimize_button.set_text("🔍 Heuristic Optimizing...")
+                            optimize_button.set_text(f"🔍 Heuristic Optimizing{mc_indicator}...")
                             optimize_button.classes(add='bg-green-600')
                         
                         # Store initial parameters for comparison
@@ -1005,7 +1167,9 @@ def main() -> None:
                                 lease_limits=lease_limits,
                                 capex_budget=budget.value * 1_000_000,  # Convert MM to dollars
                                 n_trials=n_trials,
-                                locked_parameters=locked_parameters
+                                locked_parameters=locked_parameters,
+                                run_monte_carlo=monte_carlo_toggle.value,
+                                mc_simulations=int(n_simulations.value)
                             )
                             
                             # Monitor progress with periodic UI updates
@@ -1017,10 +1181,10 @@ def main() -> None:
                                 # Update progress indication
                                 if method == "vizier":
                                     dots = "." * (progress_counter % 4)
-                                    optimize_button.set_text(f"🧠 Vizier Optimizing{dots}")
+                                    optimize_button.set_text(f"🧠 Vizier Optimizing{mc_indicator}{dots}")
                                 else:
                                     dots = "." * (progress_counter % 4)
-                                    optimize_button.set_text(f"🔍 Heuristic Optimizing{dots}")
+                                    optimize_button.set_text(f"🔍 Heuristic Optimizing{mc_indicator}{dots}")
                                 
                                 # Keep connection alive with a progress notification
                                 if progress_counter % 5 == 0:  # Every 10 seconds
@@ -1141,6 +1305,39 @@ def main() -> None:
                 # Metrics and wells per lease row
                 with ui.row().classes('w-full gap-4'):
                     with ui.column():
+                        # Trial Navigation
+                        with ui.card().classes('p-3 mb-2').style('width:700px'):
+                            ui.label("Trial Navigation").classes("text-sm font-semibold text-gray-700 mb-2")
+                            
+                            with ui.row().classes('w-full items-center gap-2'):
+                                # Trial selector dropdown
+                                client["trial_selector"] = ui.select(
+                                    options=[],
+                                    label="Select Trial",
+                                    value=None
+                                ).classes('flex-1').props('outlined dense')
+                                client["trial_selector"].set_enabled(False)
+                                
+                                # Quick action buttons
+                                client["best_trial_btn"] = ui.button(
+                                    "⭐ Best",
+                                    on_click=lambda: select_best_trial(client)
+                                ).classes('bg-amber-500 text-white px-3 py-1').props('dense')
+                                client["best_trial_btn"].set_enabled(False)
+                                
+                                client["latest_trial_btn"] = ui.button(
+                                    "🆕 Latest",
+                                    on_click=lambda: select_latest_trial(client)
+                                ).classes('bg-blue-500 text-white px-3 py-1').props('dense')
+                                client["latest_trial_btn"].set_enabled(False)
+                            
+                            # Trial selector change handler
+                            def on_trial_select(e):
+                                if e.value is not None:
+                                    select_trial(client, e.value)
+                            
+                            client["trial_selector"].on('update:model-value', on_trial_select)
+                        
                         # Metrics card
                         client["stats_card"] = ui.card().classes(
                             'p-4'
