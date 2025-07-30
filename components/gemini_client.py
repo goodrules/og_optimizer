@@ -11,15 +11,18 @@ import threading
 from typing import Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from .system_prompt import SYSTEM_PROMPT, RUNTIME_CONTEXT_TEMPLATE
 from .schema import OPTIMIZATION_PARAMS_SCHEMA, validate_optimization_params
 
+PROJECT_ID = os.environ.get("PROJECT_ID")
+GCP_REGION = os.environ.get("GCP_REGION")
+
 # Load environment variables from .env file
-load_dotenv()
+#load_dotenv()
 
 tools = [
     types.Tool(google_search=types.GoogleSearch())
@@ -56,7 +59,7 @@ class GeminiOptimizationClient:
         )
         
         # Model configuration - default to pro model
-        self.model_name = model_name or "gemini-2.5-pro"
+        self.model_name = model_name or "gemini-2.5-flash"
         
         # Generation config for structured output
         self.structured_config = {
@@ -320,10 +323,10 @@ class GeminiOptimizationClient:
     
     def set_model(self, model_name: str) -> None:
         """Change the model being used"""
-        if model_name in ["gemini-2.5-pro", "gemini-2.5-flash"]:
+        if model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]:
             self.model_name = model_name
         else:
-            raise ValueError(f"Invalid model name: {model_name}. Must be 'gemini-2.5-pro' or 'gemini-2.5-flash'")
+            raise ValueError(f"Invalid model name: {model_name}. Must be 'gemini-2.5-pro', 'gemini-2.5-flash', or 'gemini-2.5-flash-lite'")
 
 
 # Singleton instance for the application

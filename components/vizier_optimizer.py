@@ -10,7 +10,10 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from copy import deepcopy
 
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
+
+PROJECT_ID = os.environ.get("PROJECT_ID")
+GCP_REGION = os.environ.get("GCP_REGION")
 
 try:
     from google.cloud import aiplatform
@@ -31,7 +34,7 @@ from .heuristic_optimizer import (
 from .economics import WellEconomics
 
 # Load environment variables
-load_dotenv()
+#load_dotenv()
 
 
 @dataclass

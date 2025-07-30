@@ -19,7 +19,6 @@ from .vizier_optimizer import (
 )
 from .economics import WellEconomics
 
-
 class OptimizationMethod(Enum):
     """Available optimization methods."""
     HEURISTIC = "heuristic"
