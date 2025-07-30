@@ -11,18 +11,15 @@ import threading
 from typing import Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from .system_prompt import SYSTEM_PROMPT, RUNTIME_CONTEXT_TEMPLATE
 from .schema import OPTIMIZATION_PARAMS_SCHEMA, validate_optimization_params
 
-PROJECT_ID = os.environ.get("PROJECT_ID")
-GCP_REGION = os.environ.get("GCP_REGION")
-
 # Load environment variables from .env file
-#load_dotenv()
+load_dotenv()
 
 tools = [
     types.Tool(google_search=types.GoogleSearch())

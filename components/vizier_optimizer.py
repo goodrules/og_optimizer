@@ -10,11 +10,13 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from copy import deepcopy
 
-#from dotenv import load_dotenv
+from dotenv import load_dotenv
 
-PROJECT_ID = os.environ.get("PROJECT_ID")
-GCP_REGION = os.environ.get("GCP_REGION")
+from google.cloud import aiplatform
+from google.cloud.aiplatform.vizier import Study, pyvizier
+VIZIER_AVAILABLE = True
 
+'''
 try:
     from google.cloud import aiplatform
     from google.cloud.aiplatform.vizier import Study, pyvizier
@@ -24,6 +26,7 @@ except ImportError:
     # Create mock classes for type hints when Vizier not available
     Study = None
     pyvizier = None
+'''
 
 from .heuristic_optimizer import (
     OptimizationKnobs, 
@@ -34,7 +37,7 @@ from .heuristic_optimizer import (
 from .economics import WellEconomics
 
 # Load environment variables
-#load_dotenv()
+load_dotenv()
 
 
 @dataclass

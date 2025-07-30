@@ -692,8 +692,8 @@ def main() -> None:
                 
                 # Model selector dropdown
                 model_selector = ui.select(
-                    options=["gemini-2.5-pro", "gemini-2.5-flash"],
-                    value="gemini-2.5-pro",
+                    options=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+                    value="gemini-2.5-flash",
                     label="Model"
                 ).classes('w-40').props('outlined dense')
             
