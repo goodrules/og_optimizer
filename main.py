@@ -12,6 +12,6 @@ GCP_REGION = os.environ.get("GCP_REGION")
 if __name__ in {"__main__", "__mp_main__"}:    # Import will register the page routes
     ui.run(
         title="Oil & Gas Field Development Optimizer",
-        port=8080,
+        port=8081,
         reload=True,
     )
