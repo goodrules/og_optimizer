@@ -669,10 +669,10 @@ def main() -> None:
     
     # Header
     with ui.header().classes(replace='row items-center h-16 bg-gray-800'):
-        ui.label("🛢️").style('font-size: 2em').tailwind("pr-2")
+        ui.label("🛢️").style('font-size: 2em').classes("pr-2")
         ui.label('Oil & Gas Field Development Optimizer').style(
             'color:white;font-size:125%;'
-        ).tailwind("px-2.5 pl-4", "font-bold")
+        ).classes("px-2.5 pl-4 font-bold")
         ui.chip('Texas Oil Focus', color="grey").props("outline")
     
     # Main layout
@@ -1344,7 +1344,8 @@ def main() -> None:
                         ).style('width:700px;min-height:230px')
                         with client["stats_card"]:
                             client["stats_html"] = ui.html(
-                                '<div class="text-gray-500">Click "Optimize Development" to see results</div>'
+                                '<div class="text-gray-500">Click "Optimize Development" to see results</div>',
+                                sanitize=False
                             )
                     
                     with ui.column():
