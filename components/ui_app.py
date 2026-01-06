@@ -1333,8 +1333,9 @@ def main() -> None:
                             
                             # Trial selector change handler
                             def on_trial_select(e):
-                                if e.value is not None:
-                                    select_trial(client, e.value)
+                                trial_idx = client["trial_selector"].value
+                                if trial_idx is not None:
+                                    select_trial(client, trial_idx)
                             
                             client["trial_selector"].on('update:model-value', on_trial_select)
                         
