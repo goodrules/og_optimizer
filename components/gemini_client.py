@@ -43,7 +43,7 @@ class GeminiOptimizationClient:
     def __init__(self, project_id: Optional[str] = None, region: Optional[str] = None, model_name: Optional[str] = None):
         """Initialize Gemini client with Vertex AI configuration"""
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID")
-        self.region = region or os.getenv("GCP_REGION", "us-central1")
+        self.region = region or os.getenv("GCP_REGION_GEMINI") or os.getenv("GCP_REGION", "us-central1")
         
         if not self.project_id:
             raise ValueError("GCP Project ID not found. Set GCP_PROJECT_ID environment variable.")
@@ -56,7 +56,7 @@ class GeminiOptimizationClient:
         )
         
         # Model configuration - default to pro model
-        self.model_name = model_name or "gemini-2.5-flash"
+        self.model_name = model_name or "gemini-3-flash-preview"
         
         # Generation config for structured output
         self.structured_config = {
@@ -320,10 +320,10 @@ class GeminiOptimizationClient:
     
     def set_model(self, model_name: str) -> None:
         """Change the model being used"""
-        if model_name in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]:
+        if model_name in ["gemini-3-flash-preview"]:
             self.model_name = model_name
         else:
-            raise ValueError(f"Invalid model name: {model_name}. Must be 'gemini-2.5-pro', 'gemini-2.5-flash', or 'gemini-2.5-flash-lite'")
+            raise ValueError(f"Invalid model name: {model_name}. Must be 'gemini-3-flash-preview'")
 
 
 # Singleton instance for the application
